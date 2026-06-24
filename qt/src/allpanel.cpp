@@ -227,11 +227,12 @@ void AllPanel::rebuildList(const QString& searchFilter) {
                       return a.createdAt > b.createdAt;
                   });
 
-        // Section header
+        // Section header — subtle separator
         auto* header = new QLabel(title, m_listWidget);
         header->setStyleSheet(QStringLiteral(
-            "color: #fff; background: #2a2a5a; font-weight: bold; font-size: 13px;"
-            "padding: 6px 12px; border-radius: 6px; margin: 4px 4px 0px 4px;"));
+            "color: #90caf9; font-weight: bold; font-size: 12px;"
+            "padding: 4px 8px; background: transparent;"
+            "border-bottom: 1px solid #2a2a4a; margin: 4px 8px 0px 8px;"));
         m_listLayout->addWidget(header);
 
         for (const auto& e : group) {
