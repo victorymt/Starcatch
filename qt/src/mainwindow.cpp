@@ -29,6 +29,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Initial load
     m_todoPanel->refresh();
+    m_quickInputBar->focusInput();
 }
 
 MainWindow::~MainWindow() {
@@ -90,6 +91,7 @@ void MainWindow::onTabChanged(int index) {
         case 1: m_ideaPanel->refresh(); break;
         case 2: m_logPanel->refresh();  break;
     }
+    m_quickInputBar->focusInput();
 }
 
 void MainWindow::refreshCurrentTab() {
@@ -161,6 +163,7 @@ void MainWindow::handleCommand(const QString& action, const QString& text) {
                 "  Enter  提交\n"
                 "  Esc    关闭窗口"
             ));
+        m_quickInputBar->focusInput();
     } else {
         showToast(QStringLiteral("❓ 未知命令: /%1").arg(action));
     }
