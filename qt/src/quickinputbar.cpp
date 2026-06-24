@@ -32,7 +32,38 @@ QuickInputBar::QuickInputBar(QWidget* parent)
             this, &QuickInputBar::updatePlaceholder);
 
     connect(m_input, &QLineEdit::textChanged, this, [this](const QString& text) {
-        m_submitBtn->setEnabled(!text.trimmed().isEmpty());
+        // Quick kind switch via /t /i /l prefix
+        if (m_handlingPrefix) return;
+        QuickKind target = currentKind();
+        QString stripped;
+        bool matched = false;
+
+        if (text.startsWith(QStringLiteral("/t "))) {
+            target = QuickKind::Todo;
+            stripped = text.mid(3);
+            matched = true;
+        } else if (text.startsWith(QStringLiteral("/i "))) {
+            target = QuickKind::Idea;
+            stripped = text.mid(3);
+            matched = true;
+        } else if (text.startsWith(QStringLiteral("/l "))) {
+            target = QuickKind::Log;
+            stripped = text.mid(3);
+            matched = true;
+        }
+
+        if (matched) {
+            m_handlingPrefix = true;
+            switch (target) {
+                case QuickKind::Todo: m_kindCombo->setCurrentIndex(0); break;
+                case QuickKind::Idea: m_kindCombo->setCurrentIndex(1); break;
+                case QuickKind::Log:  m_kindCombo->setCurrentIndex(2); break;
+            }
+            m_input->setText(stripped);
+            m_handlingPrefix = false;
+        }
+
+        m_submitBtn->setEnabled(!m_input->text().trimmed().isEmpty());
     });
 
     connect(m_input, &QLineEdit::returnPressed, this, [this]() {

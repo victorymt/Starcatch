@@ -24,4 +24,5 @@ private:
     QComboBox*   m_kindCombo;
     QLineEdit*   m_input;
     QPushButton* m_submitBtn;
+    bool         m_handlingPrefix = false;
 };
