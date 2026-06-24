@@ -178,6 +178,16 @@ void MainWindow::quickCapture(const QString& text, QuickKind kind) {
     showToast(QStringLiteral("✅ %1").arg(text));
     m_quickInputBar->clearInput();
     m_quickInputBar->focusInput();
+
+    // Switch to the matching tab
+    int tabIndex = 0;
+    switch (kind) {
+        case QuickKind::Todo: tabIndex = 1; break;
+        case QuickKind::Idea: tabIndex = 2; break;
+        case QuickKind::Log:  tabIndex = 3; break;
+    }
+    m_tabWidget->setCurrentIndex(tabIndex);
+
     refreshCurrentTab();
     updateTabLabels();
 }
