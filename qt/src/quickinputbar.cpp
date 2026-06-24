@@ -186,7 +186,7 @@ bool QuickInputBar::eventFilter(QObject* obj, QEvent* ev) {
         auto* ke = static_cast<QKeyEvent*>(ev);
         if (ke->key() == Qt::Key_Tab) {
             QString text = m_input->text();
-            if (text.startsWith(QChar('/')) && m_input->cursorPosition() == text.length()) {
+            if (text.startsWith(QChar('/')) && m_input->cursorPosition() == text.length() && text.indexOf(QChar(' ')) < 0) {
                 // Determine the partial: use stored base if cycling, else current text
                 QString partial;
                 if (m_tabCycleIndex >= 0) {
@@ -223,8 +223,8 @@ bool QuickInputBar::eventFilter(QObject* obj, QEvent* ev) {
                     }
                 }
                 m_tabCompleting = false;
+                return true;
             }
-            return true;
         }
     }
     return QWidget::eventFilter(obj, ev);

@@ -13,6 +13,7 @@
 #include <QLineEdit>
 #include <QSqlQuery>
 #include <QSqlError>
+#include <QStyle>
 
 // ─── Helpers ───
 
@@ -143,13 +144,15 @@ public:
     }
 
     void startEdit() {
+        if (m_editing) return;
+        m_editing = true;
+
         auto* edit = new QLineEdit(m_title, this);
         edit->selectAll();
         edit->setStyleSheet(QStringLiteral(
             "QLineEdit { border-radius: 4px; padding: 2px 6px; }"));
         m_titleLabel->hide();
 
-        // Insert edit in the same position
         auto* lay = qobject_cast<QHBoxLayout*>(layout());
         int idx = lay->indexOf(m_titleLabel);
         lay->insertWidget(idx, edit);
@@ -165,6 +168,7 @@ public:
             lay->removeWidget(edit);
             edit->deleteLater();
             m_titleLabel->show();
+            m_editing = false;
         };
 
         connect(edit, &QLineEdit::returnPressed, this, [finish]() { finish(true); });
@@ -198,6 +202,7 @@ private:
     QString m_id;
     QString m_title;
     QLabel* m_titleLabel = nullptr;
+    bool m_editing = false;
 };
 
 // ─── TodoPanel ───
@@ -417,12 +422,9 @@ void TodoPanel::updateSelectionHighlight() {
         auto* li = m_listLayout->itemAt(i);
         if (li && li->widget()) {
             auto* w = li->widget();
-            if (i == m_selectedIndex)
-                w->setStyleSheet(w->styleSheet() + QStringLiteral(
-                    "QFrame[card=\"true\"] { border: 1px solid #64b5f6; }"));
-            else
-                w->setStyleSheet(w->styleSheet().replace(
-                    QStringLiteral("QFrame[card=\"true\"] { border: 1px solid #64b5f6; }"), QString()));
+            w->setProperty("selected", i == m_selectedIndex);
+            w->style()->unpolish(w);
+            w->style()->polish(w);
         }
     }
 }

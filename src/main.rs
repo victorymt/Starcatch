@@ -3,6 +3,7 @@ mod db;
 mod models;
 
 use std::io::Read;
+use std::sync::LazyLock;
 
 use chrono::{Datelike, Duration, Utc, Weekday};
 use clap::Parser;
@@ -57,16 +58,22 @@ fn main() {
 // ─── Natural date parser ───
 
 fn parse_natural_date(text: &str) -> Option<String> {
+    static DATE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap());
+    static NUM_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\d+)\s*(天|d|day|days)?(后|後| later)?$").unwrap());
+    static NEXT_EN_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^next\s+(\w+)").unwrap());
+    static NEXT_ZH_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^下(?:周|星期|礼拜)?(.)").unwrap());
+    static THIS_ZH_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?:这|本|这周|本周|这星期|本星期)(?:周|星期|礼拜)?(.)").unwrap());
+
     let today = Utc::now().date_naive();
     let t = text.trim();
 
     // Already yyyy-MM-dd
-    if Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap().is_match(t) {
+    if DATE_RE.is_match(t) {
         return Some(t.to_string());
     }
 
     // Numeric: N (days later)
-    if let Some(cap) = Regex::new(r"^(\d+)\s*(天|d|day|days)?(后|後| later)?$").unwrap().captures(t) {
+    if let Some(cap) = NUM_RE.captures(t) {
         let n: i64 = cap[1].parse().unwrap_or(0);
         return Some((today + Duration::days(n)).format("%Y-%m-%d").to_string());
     }
@@ -95,15 +102,15 @@ fn parse_natural_date(text: &str) -> Option<String> {
         "大后天" | "大後天" => return Some((today + Duration::days(3)).format("%Y-%m-%d").to_string()),
         "昨天" | "yesterday" => return Some((today + Duration::days(-1)).format("%Y-%m-%d").to_string()),
         "下周" | "下週" | "next week" => {
-            let delta = 8 - today.weekday().num_days_from_monday() as i64;
+            let delta = 7 - today.weekday().num_days_from_monday() as i64;
+            if delta <= 0 { return Some((today + Duration::days(delta + 7)).format("%Y-%m-%d").to_string()); }
             return Some((today + Duration::days(delta)).format("%Y-%m-%d").to_string());
         }
         _ => {}
     }
 
     // "next <weekday>"
-    let re = Regex::new(r"^next\s+(\w+)").unwrap();
-    if let Some(cap) = re.captures(t) {
+    if let Some(cap) = NEXT_EN_RE.captures(t) {
         let w = cap[1].to_lowercase();
         for (key, wd) in &dow_en {
             if w == *key {
@@ -117,8 +124,7 @@ fn parse_natural_date(text: &str) -> Option<String> {
     }
 
     // "下<星期X>" / "下周<X>"
-    let re = Regex::new(r"^下(?:周|星期|礼拜)?(.)").unwrap();
-    if let Some(cap) = re.captures(t) {
+    if let Some(cap) = NEXT_ZH_RE.captures(t) {
         let ch = &cap[1];
         for (key, wd) in &dow_zh {
             if ch == *key {
@@ -132,8 +138,7 @@ fn parse_natural_date(text: &str) -> Option<String> {
     }
 
     // "本周X" / "这周X"
-    let re = Regex::new(r"^(?:这|本|这周|本周|这星期|本星期)(?:周|星期|礼拜)?(.)").unwrap();
-    if let Some(cap) = re.captures(t) {
+    if let Some(cap) = THIS_ZH_RE.captures(t) {
         let ch = &cap[1];
         for (key, wd) in &dow_zh {
             if ch == *key {

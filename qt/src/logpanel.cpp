@@ -90,6 +90,8 @@ public:
     }
 
     void startEdit() {
+        if (m_editing) return;
+        m_editing = true;
         auto* edit = new QLineEdit(m_content, this);
         edit->selectAll();
         edit->setStyleSheet(QStringLiteral("QLineEdit { border-radius: 4px; padding: 2px 6px; }"));
@@ -106,6 +108,7 @@ public:
             lay->removeWidget(edit);
             edit->deleteLater();
             m_contentLabel->show();
+            m_editing = false;
         };
         connect(edit, &QLineEdit::returnPressed, this, [finish]() { finish(true); });
         connect(edit, &QLineEdit::editingFinished, this, [finish]() { finish(true); });
@@ -126,6 +129,7 @@ private:
     QString m_id;
     QString m_content;
     QLabel* m_contentLabel = nullptr;
+    bool m_editing = false;
 };
 
 // ─── LogPanel ───

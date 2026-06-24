@@ -73,6 +73,8 @@ public:
     }
 
     void startEdit() {
+        if (m_editing) return;
+        m_editing = true;
         auto* edit = new QLineEdit(m_title, this);
         edit->selectAll();
         edit->setStyleSheet(QStringLiteral("QLineEdit { border-radius: 4px; padding: 2px 6px; }"));
@@ -89,6 +91,7 @@ public:
             lay->removeWidget(edit);
             edit->deleteLater();
             m_titleLabel->show();
+            m_editing = false;
         };
         connect(edit, &QLineEdit::returnPressed, this, [finish]() { finish(true); });
         connect(edit, &QLineEdit::editingFinished, this, [finish]() { finish(true); });
@@ -109,6 +112,7 @@ private:
     QString m_id;
     QString m_title;
     QLabel* m_titleLabel = nullptr;
+    bool m_editing = false;
 };
 
 // ─── IdeaPanel ───

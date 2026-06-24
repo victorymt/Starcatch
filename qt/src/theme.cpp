@@ -84,6 +84,7 @@ QString ThemeManager::darkStyles() const {
         "QFrame[card=\"true\"] { background: #222240; border-radius: 8px; border: 1px solid #2a2a4a; padding: 2px; margin: 1px 4px; }"
         "QFrame[card=\"true\"] QLabel { background: transparent; }"
         "QFrame[card=\"true\"]:hover { background: #252548; border-color: #3a3a5a; }"
+        "QFrame[card=\"true\"][selected=\"true\"] { border: 1px solid #64b5f6; }"
     );
 }
 
@@ -112,5 +113,6 @@ QString ThemeManager::lightStyles() const {
         "QFrame[card=\"true\"] { background: #fff; border-radius: 8px; border: 1px solid #e0e0e0; padding: 2px; margin: 1px 4px; }"
         "QFrame[card=\"true\"] QLabel { background: transparent; }"
         "QFrame[card=\"true\"]:hover { background: #fafafa; border-color: #bbb; }"
+        "QFrame[card=\"true\"][selected=\"true\"] { border: 1px solid #1565c0; }"
     );
 }
