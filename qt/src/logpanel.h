@@ -27,6 +27,7 @@ private:
     void rebuildList(const QVector<LogEntry>& logs);
     void showEmptyState();
     void handleDelete(const QString& id);
+    void handleContentEdit(const QString& id, const QString& newContent);
 
     Database*    m_db;
     QSlider*     m_daysSlider;

@@ -5,6 +5,10 @@
 #include <QLabel>
 #include <QToolButton>
 #include <QFrame>
+#include <QLineEdit>
+#include <QMouseEvent>
+#include <QSqlQuery>
+#include <QSqlError>
 
 // ─── IdeaItemWidget ───
 
@@ -12,7 +16,7 @@ class IdeaItemWidget : public QFrame {
     Q_OBJECT
 public:
     IdeaItemWidget(const Idea& idea, QWidget* parent = nullptr)
-        : QFrame(parent), m_id(idea.id)
+        : QFrame(parent), m_id(idea.id), m_title(idea.title)
     {
         setProperty("card", true);
 
@@ -28,9 +32,11 @@ public:
         timeLabel->setToolTip(idea.createdAt.toUTC().toString(Qt::ISODate));
         layout->addWidget(timeLabel);
 
-        auto* titleLabel = new QLabel(idea.title, this);
-        titleLabel->setWordWrap(true);
-        layout->addWidget(titleLabel, 1);
+        m_titleLabel = new QLabel(idea.title, this);
+        m_titleLabel->setCursor(Qt::IBeamCursor);
+        m_titleLabel->setToolTip(QStringLiteral("双击编辑"));
+        m_titleLabel->setWordWrap(true);
+        layout->addWidget(m_titleLabel, 1);
 
         if (!idea.source.isEmpty()) {
             auto* srcLabel = new QLabel(QStringLiteral("(%1)").arg(idea.source), this);
@@ -66,12 +72,43 @@ public:
         layout->addWidget(delBtn);
     }
 
+    void startEdit() {
+        auto* edit = new QLineEdit(m_title, this);
+        edit->selectAll();
+        edit->setStyleSheet(QStringLiteral("QLineEdit { border-radius: 4px; padding: 2px 6px; }"));
+        m_titleLabel->hide();
+        auto* lay = qobject_cast<QHBoxLayout*>(layout());
+        int idx = lay->indexOf(m_titleLabel);
+        lay->insertWidget(idx, edit);
+        edit->setFocus();
+        auto finish = [this, edit, lay](bool save) {
+            if (save) {
+                QString t = edit->text().trimmed();
+                if (!t.isEmpty() && t != m_title) emit titleEdited(m_id, t);
+            }
+            lay->removeWidget(edit);
+            edit->deleteLater();
+            m_titleLabel->show();
+        };
+        connect(edit, &QLineEdit::returnPressed, this, [finish]() { finish(true); });
+        connect(edit, &QLineEdit::editingFinished, this, [finish]() { finish(true); });
+    }
+
+protected:
+    void mouseDoubleClickEvent(QMouseEvent* ev) override {
+        if (m_titleLabel->geometry().contains(ev->pos())) { startEdit(); return; }
+        QFrame::mouseDoubleClickEvent(ev);
+    }
+
 signals:
     void deleteClicked(const QString& id);
     void tagClicked(const QString& tag);
+    void titleEdited(const QString& id, const QString& newTitle);
 
 private:
     QString m_id;
+    QString m_title;
+    QLabel* m_titleLabel = nullptr;
 };
 
 // ─── IdeaPanel ───
@@ -149,6 +186,8 @@ void IdeaPanel::rebuildList(const QVector<Idea>& ideas) {
                 this, &IdeaPanel::handleDelete);
         connect(itemWidget, &IdeaItemWidget::tagClicked,
                 this, &IdeaPanel::tagFilterRequested);
+        connect(itemWidget, &IdeaItemWidget::titleEdited,
+                this, &IdeaPanel::handleTitleEdit);
         m_listLayout->addWidget(itemWidget);
     }
 
@@ -171,6 +210,16 @@ void IdeaPanel::showEmptyState() {
     emptyLayout->addStretch();
 
     m_listLayout->addWidget(emptyWidget);
+}
+
+void IdeaPanel::handleTitleEdit(const QString& id, const QString& newTitle) {
+    QSqlDatabase db = QSqlDatabase::database(QStringLiteral("starcatch_conn"));
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral("UPDATE ideas SET title = ? WHERE id = ?"));
+    q.addBindValue(newTitle);
+    q.addBindValue(id);
+    if (!q.exec()) qWarning() << "handleTitleEdit(idea) failed:" << q.lastError().text();
+    refresh();
 }
 
 void IdeaPanel::handleDelete(const QString& id) {

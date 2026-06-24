@@ -5,7 +5,12 @@
 #include <QLabel>
 #include <QToolButton>
 #include <QFrame>
+#include <QLineEdit>
+#include <QMouseEvent>
 #include <QMap>
+#include <QSqlQuery>
+#include <QSqlError>
+#include <QDateTime>
 
 // ─── Mood icons ───
 
@@ -31,7 +36,7 @@ class LogItemWidget : public QFrame {
     Q_OBJECT
 public:
     LogItemWidget(const LogEntry& log, QWidget* parent = nullptr)
-        : QFrame(parent), m_id(log.id)
+        : QFrame(parent), m_id(log.id), m_content(log.content)
     {
         setProperty("card", true);
 
@@ -50,11 +55,13 @@ public:
             layout->addWidget(new QLabel(LogPanel::moodIcon(log.mood), this));
         }
 
-        auto* contentLabel = new QLabel(log.content, this);
-        contentLabel->setWordWrap(true);
-        layout->addWidget(contentLabel, 1);
+        m_contentLabel = new QLabel(log.content, this);
+        m_contentLabel->setCursor(Qt::IBeamCursor);
+        m_contentLabel->setToolTip(QStringLiteral("双击编辑"));
+        m_contentLabel->setWordWrap(true);
+        layout->addWidget(m_contentLabel, 1);
 
-        // Tags — clickable pills
+        // Tags
         for (const auto& tag : log.tags) {
             auto* tagLabel = new QLabel(
                 QStringLiteral("<a href='tag:%1' style='color:#64b5f6;text-decoration:none;'>#%1</a>").arg(tag), this);
@@ -82,12 +89,43 @@ public:
         layout->addWidget(delBtn);
     }
 
+    void startEdit() {
+        auto* edit = new QLineEdit(m_content, this);
+        edit->selectAll();
+        edit->setStyleSheet(QStringLiteral("QLineEdit { border-radius: 4px; padding: 2px 6px; }"));
+        m_contentLabel->hide();
+        auto* lay = qobject_cast<QHBoxLayout*>(layout());
+        int idx = lay->indexOf(m_contentLabel);
+        lay->insertWidget(idx, edit);
+        edit->setFocus();
+        auto finish = [this, edit, lay](bool save) {
+            if (save) {
+                QString t = edit->text().trimmed();
+                if (!t.isEmpty() && t != m_content) emit contentEdited(m_id, t);
+            }
+            lay->removeWidget(edit);
+            edit->deleteLater();
+            m_contentLabel->show();
+        };
+        connect(edit, &QLineEdit::returnPressed, this, [finish]() { finish(true); });
+        connect(edit, &QLineEdit::editingFinished, this, [finish]() { finish(true); });
+    }
+
+protected:
+    void mouseDoubleClickEvent(QMouseEvent* ev) override {
+        if (m_contentLabel->geometry().contains(ev->pos())) { startEdit(); return; }
+        QFrame::mouseDoubleClickEvent(ev);
+    }
+
 signals:
     void deleteClicked(const QString& id);
     void tagClicked(const QString& tag);
+    void contentEdited(const QString& id, const QString& newContent);
 
 private:
     QString m_id;
+    QString m_content;
+    QLabel* m_contentLabel = nullptr;
 };
 
 // ─── LogPanel ───
@@ -165,6 +203,8 @@ void LogPanel::rebuildList(const QVector<LogEntry>& logs) {
                 this, &LogPanel::handleDelete);
         connect(itemWidget, &LogItemWidget::tagClicked,
                 this, &LogPanel::tagFilterRequested);
+        connect(itemWidget, &LogItemWidget::contentEdited,
+                this, &LogPanel::handleContentEdit);
         m_listLayout->addWidget(itemWidget);
     }
 
@@ -187,6 +227,17 @@ void LogPanel::showEmptyState() {
     emptyLayout->addStretch();
 
     m_listLayout->addWidget(emptyWidget);
+}
+
+void LogPanel::handleContentEdit(const QString& id, const QString& newContent) {
+    QSqlDatabase db = QSqlDatabase::database(QStringLiteral("starcatch_conn"));
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral("UPDATE logs SET content = ?, updated_at = ? WHERE id = ?"));
+    q.addBindValue(newContent);
+    q.addBindValue(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    q.addBindValue(id);
+    if (!q.exec()) qWarning() << "handleContentEdit(log) failed:" << q.lastError().text();
+    refresh();
 }
 
 void LogPanel::handleDelete(const QString& id) {

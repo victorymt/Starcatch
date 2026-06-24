@@ -24,6 +24,7 @@ private:
     void rebuildList(const QVector<Idea>& ideas);
     void showEmptyState();
     void handleDelete(const QString& id);
+    void handleTitleEdit(const QString& id, const QString& newTitle);
 
     Database*    m_db;
     QSlider*     m_daysSlider;
