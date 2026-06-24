@@ -328,7 +328,7 @@ fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> rusqlite::Result<()> {
 
 #[cfg(feature = "gui")]
 fn launch_gui(db_path: String) -> rusqlite::Result<()> {
-    use eframe::egui::{self, ViewportBuilder, FontData, FontDefinitions, FontFamily};
+    use eframe::egui::{ViewportBuilder, FontData, FontDefinitions, FontFamily};
     let native_options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
             .with_inner_size([420.0, 520.0])

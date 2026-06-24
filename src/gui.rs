@@ -71,7 +71,6 @@ pub struct GuiApp {
     // Todo
     todos: Vec<Todo>,
     todo_filter: TodoFilter,
-    todo_edit_title: String,
 
     // Idea
     ideas: Vec<Idea>,
@@ -99,7 +98,6 @@ impl GuiApp {
             tab: PanelTab::Todo,
             todos: vec![],
             todo_filter: TodoFilter::Active,
-            todo_edit_title: String::new(),
             ideas: vec![],
             idea_days: 7,
             logs: vec![],
@@ -397,8 +395,6 @@ impl GuiApp {
                 let mut to_delete: Option<String> = None;
                 let mut to_toggle: Option<(String, bool)> = None;
                 let mut to_archive: Option<String> = None;
-                let conn = db::open(&self.db_path).ok();
-
                 for todo in &self.todos {
                     let id = todo.id.clone();
                     let is_done = todo.status == TodoStatus::Done;
@@ -413,7 +409,7 @@ impl GuiApp {
                         egui::Color32::TRANSPARENT
                     };
 
-                    egui::Frame::none()
+                    egui::Frame::NONE
                         .fill(bg)
                         .inner_margin(egui::Margin::symmetric(4, 2))
                         .show(ui, |ui| {
@@ -526,7 +522,7 @@ impl GuiApp {
                 for idea in &self.ideas {
                     let id = idea.id.clone();
 
-                    egui::Frame::none()
+                    egui::Frame::NONE
                         .inner_margin(egui::Margin::symmetric(4, 2))
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
@@ -606,7 +602,7 @@ impl GuiApp {
                 for log in &self.logs {
                     let id = log.id.clone();
 
-                    egui::Frame::none()
+                    egui::Frame::NONE
                         .inner_margin(egui::Margin::symmetric(4, 2))
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
