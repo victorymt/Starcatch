@@ -42,6 +42,7 @@ public:
         for (const auto& tag : idea.tags) {
             auto* tagLabel = new QLabel(
                 QStringLiteral("<a href='tag:%1' style='color:#64b5f6;text-decoration:none;'>#%1</a>").arg(tag), this);
+            tagLabel->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
             tagLabel->setStyleSheet(QStringLiteral(
                 "font-size: 10px; background: rgba(100,181,246,0.12);"
                 "border-radius: 4px; padding: 1px 5px;"));
