@@ -187,13 +187,21 @@ bool QuickInputBar::eventFilter(QObject* obj, QEvent* ev) {
         if (ke->key() == Qt::Key_Tab) {
             QString text = m_input->text();
             if (text.startsWith(QChar('/')) && m_input->cursorPosition() == text.length()) {
-                int spaceIdx = text.indexOf(QChar(' '));
-                QString partial = (spaceIdx > 0) ? text.left(spaceIdx).mid(1) : text.mid(1);
+                // Determine the partial: use stored base if cycling, else current text
+                QString partial;
+                if (m_tabCycleIndex >= 0) {
+                    partial = m_tabCycleBase;
+                } else {
+                    int spaceIdx = text.indexOf(QChar(' '));
+                    partial = (spaceIdx > 0) ? text.left(spaceIdx).mid(1) : text.mid(1);
+                    if (partial.isEmpty()) return true;
+                    m_tabCycleBase = partial;
+                }
 
                 // Gather matches
                 QStringList matches;
                 for (auto* p : CommandRegistry::instance().all()) {
-                    if (p->name().startsWith(partial))
+                    if (p->name().startsWith(m_tabCycleBase))
                         matches << p->name();
                 }
 
@@ -204,12 +212,7 @@ bool QuickInputBar::eventFilter(QObject* obj, QEvent* ev) {
                     m_input->setText(QStringLiteral("/%1 ").arg(matches.first()));
                     m_tabCycleIndex = -1;
                 } else {
-                    if (partial != m_tabCycleBase) {
-                        m_tabCycleBase = partial;
-                        m_tabCycleIndex = 0;
-                    } else {
-                        m_tabCycleIndex = (m_tabCycleIndex + 1) % matches.size();
-                    }
+                    m_tabCycleIndex = (m_tabCycleIndex + 1) % matches.size();
                     m_input->setText(QStringLiteral("/%1 ").arg(matches[m_tabCycleIndex]));
                 }
                 m_tabCompleting = false;
