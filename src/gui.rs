@@ -270,7 +270,15 @@ impl eframe::App for GuiApp {
             self.refresh_data();
         }
 
-        // ── Handle Escape ──
+        // ── Handle global keys ──
+        // Enter to submit quick input
+        let submit_quick = !self.quick_input.is_empty()
+            && ctx.input(|i| i.key_pressed(egui::Key::Enter));
+
+        if submit_quick {
+            self.quick_capture();
+        }
+
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
@@ -327,16 +335,10 @@ impl eframe::App for GuiApp {
                         .desired_width(f32::INFINITY),
                 );
 
-                // Auto-focus
+                // Auto-focus on first render
                 if self.focus_input {
                     resp.request_focus();
                     self.focus_input = false;
-                }
-
-                // Enter to submit
-                let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
-                if enter && !self.quick_input.is_empty() {
-                    self.quick_capture();
                 }
 
                 if ui.button("➕").clicked() && !self.quick_input.is_empty() {
