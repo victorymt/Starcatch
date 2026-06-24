@@ -22,6 +22,7 @@ private slots:
     void onTabChanged(int index);
     void refreshCurrentTab();
     void quickCapture(const QString& text, QuickKind kind);
+    void handleCommand(const QString& action, const QString& text);
 
 private:
     void setupUi();
