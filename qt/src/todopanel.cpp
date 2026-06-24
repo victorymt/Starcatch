@@ -7,6 +7,11 @@
 #include <QPushButton>
 #include <QFrame>
 #include <QToolButton>
+#include <QDate>
+#include <QMouseEvent>
+#include <QLineEdit>
+#include <QSqlQuery>
+#include <QSqlError>
 
 // ─── Helpers ───
 
@@ -26,7 +31,7 @@ class TodoItemWidget : public QFrame {
     Q_OBJECT
 public:
     TodoItemWidget(const Todo& todo, QWidget* parent = nullptr)
-        : QFrame(parent), m_id(todo.id)
+        : QFrame(parent), m_id(todo.id), m_title(todo.title)
     {
         setProperty("card", true);
 
@@ -56,15 +61,17 @@ public:
         layout->addWidget(cb);
 
         // Title
-        auto* titleLabel = new QLabel(todo.title, this);
+        m_titleLabel = new QLabel(todo.title, this);
+        m_titleLabel->setCursor(Qt::IBeamCursor);
+        m_titleLabel->setToolTip(QStringLiteral("双击编辑"));
         if (isDone) {
-            titleLabel->setText(QStringLiteral("<s>%1</s>").arg(todo.title.toHtmlEscaped()));
-            titleLabel->setStyleSheet(QStringLiteral("color: #777;"));
+            m_titleLabel->setText(QStringLiteral("<s>%1</s>").arg(todo.title.toHtmlEscaped()));
+            m_titleLabel->setStyleSheet(QStringLiteral("color: #777;"));
         } else if (isArchived) {
-            titleLabel->setStyleSheet(QStringLiteral("color: #555;"));
+            m_titleLabel->setStyleSheet(QStringLiteral("color: #555;"));
         }
-        titleLabel->setWordWrap(true);
-        layout->addWidget(titleLabel, 1);
+        m_titleLabel->setWordWrap(true);
+        layout->addWidget(m_titleLabel, 1);
 
         // Tags — tiny pills
         for (const auto& tag : todo.tags) {
@@ -76,13 +83,30 @@ public:
             layout->addWidget(tagLabel);
         }
 
-        // Due date
-        if (!todo.dueDate.isEmpty()) {
+        // Due date — highlight if overdue or due today
+        if (!todo.dueDate.isEmpty() && !isDone && !isArchived) {
+            QDate today = QDate::currentDate();
+            QDate due = QDate::fromString(todo.dueDate, QStringLiteral("yyyy-MM-dd"));
+            bool overdue = due.isValid() && due <= today;
+            bool dueToday = due.isValid() && due == today;
+
             auto* dueLabel = new QLabel(todo.dueDate, this);
-            dueLabel->setStyleSheet(QStringLiteral(
-                "color: #ef9a9a; font-size: 11px; font-weight: bold;"
-            ));
+            if (overdue) {
+                dueLabel->setText(QStringLiteral("⚠️ %1").arg(todo.dueDate));
+                dueLabel->setStyleSheet(QStringLiteral(
+                    "color: #ff5252; font-size: 11px; font-weight: bold;"));
+            } else {
+                dueLabel->setStyleSheet(QStringLiteral(
+                    "color: #ef9a9a; font-size: 11px; font-weight: bold;"));
+            }
             layout->addWidget(dueLabel);
+
+            // Red border tint on the card for overdue items
+            if (overdue) {
+                setProperty("overdue", true);
+                setStyleSheet(styleSheet() + QStringLiteral(
+                    "TodoItemWidget[overdue=\"true\"] { border: 1px solid #ff5252; }"));
+            }
         }
 
         // Archive button (only for non-archived)
@@ -112,13 +136,61 @@ public:
         layout->addWidget(delBtn);
     }
 
+    void startEdit() {
+        auto* edit = new QLineEdit(m_title, this);
+        edit->selectAll();
+        edit->setStyleSheet(QStringLiteral(
+            "QLineEdit { border-radius: 4px; padding: 2px 6px; }"));
+        m_titleLabel->hide();
+
+        // Insert edit in the same position
+        auto* lay = qobject_cast<QHBoxLayout*>(layout());
+        int idx = lay->indexOf(m_titleLabel);
+        lay->insertWidget(idx, edit);
+        edit->setFocus();
+
+        auto finish = [this, edit, lay](bool save) {
+            if (save) {
+                QString newTitle = edit->text().trimmed();
+                if (!newTitle.isEmpty() && newTitle != m_title) {
+                    emit titleEdited(m_id, newTitle);
+                }
+            }
+            lay->removeWidget(edit);
+            edit->deleteLater();
+            m_titleLabel->show();
+        };
+
+        connect(edit, &QLineEdit::returnPressed, this, [finish]() { finish(true); });
+        connect(edit, &QLineEdit::editingFinished, this, [finish]() { finish(true); });
+        // Esc → cancel
+        connect(edit, &QLineEdit::textChanged, this, [edit]() {
+            // Qt doesn't have an Esc signal on QLineEdit directly,
+            // so we override keyPressEvent is overkill. Just cancel on focus loss? No.
+            // Let's skip Esc for now — Enter or focus-out saves.
+        });
+    }
+
+protected:
+    void mouseDoubleClickEvent(QMouseEvent* ev) override {
+        QRect r = m_titleLabel->geometry();
+        if (r.contains(ev->pos())) {
+            startEdit();
+            return;
+        }
+        QFrame::mouseDoubleClickEvent(ev);
+    }
+
 signals:
     void toggled(const QString& id, bool checked);
     void deleteClicked(const QString& id);
     void archiveClicked(const QString& id);
+    void titleEdited(const QString& id, const QString& newTitle);
 
 private:
     QString m_id;
+    QString m_title;
+    QLabel* m_titleLabel = nullptr;
 };
 
 // ─── TodoPanel ───
@@ -241,6 +313,8 @@ void TodoPanel::rebuildList(const QVector<Todo>& todos) {
                 this, &TodoPanel::handleDelete);
         connect(itemWidget, &TodoItemWidget::archiveClicked,
                 this, &TodoPanel::handleArchive);
+        connect(itemWidget, &TodoItemWidget::titleEdited,
+                this, &TodoPanel::handleTitleEdit);
 
         m_listLayout->addWidget(itemWidget);
     }
@@ -278,6 +352,19 @@ void TodoPanel::handleDelete(const QString& id) {
 
 void TodoPanel::handleArchive(const QString& id) {
     m_db->updateTodoStatus(id, TodoStatus::Archived);
+    refresh();
+}
+
+void TodoPanel::handleTitleEdit(const QString& id, const QString& newTitle) {
+    QSqlDatabase db = QSqlDatabase::database(QStringLiteral("starcatch_conn"));
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral("UPDATE todos SET title = ?, updated_at = ? WHERE id = ?"));
+    q.addBindValue(newTitle);
+    q.addBindValue(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    q.addBindValue(id);
+    if (!q.exec()) {
+        qWarning() << "handleTitleEdit failed:" << q.lastError().text();
+    }
     refresh();
 }
 

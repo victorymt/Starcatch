@@ -23,6 +23,7 @@ private:
     void handleToggle(const QString& id, bool done);
     void handleDelete(const QString& id);
     void handleArchive(const QString& id);
+    void handleTitleEdit(const QString& id, const QString& newTitle);
 
     Database*     m_db;
     QButtonGroup* m_filterGroup;
