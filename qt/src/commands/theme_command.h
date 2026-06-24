@@ -9,8 +9,8 @@ public:
     bool execute(const QString&, CommandContext& ctx) override {
         ThemeManager::instance().toggle();
         ctx.showToast(ThemeManager::instance().isDark()
-            ? QStringLiteral("\xF0\x9F\x8C\x99 已切换到暗色主题")
-            : QStringLiteral("\xE2\x98\x80\xEF\xB8\x8F 已切换到亮色主题"));
+            ? QStringLiteral("🌙 已切换到暗色主题")
+            : QStringLiteral("☀️ 已切换到亮色主题"));
         return true;
     }
 };
