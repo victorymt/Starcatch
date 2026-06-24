@@ -11,9 +11,10 @@ class AllPanel : public QWidget {
 public:
     explicit AllPanel(Database* db, QWidget* parent = nullptr);
     void refresh();
+    void showSearchResults(const QString& query);
 
 private:
-    void rebuildList();
+    void rebuildList(const QString& searchFilter = QString());
     void showEmptyState();
     void handleDeleteTodo(const QString& id);
     void handleDeleteIdea(const QString& id);

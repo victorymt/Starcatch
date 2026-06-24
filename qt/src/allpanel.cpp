@@ -118,7 +118,15 @@ void AllPanel::refresh() {
     rebuildList();
 }
 
-void AllPanel::rebuildList() {
+void AllPanel::showSearchResults(const QString& query) {
+    rebuildList(query);
+}
+
+static bool matches(const QString& text, const QString& query) {
+    return text.toLower().contains(query.toLower());
+}
+
+void AllPanel::rebuildList(const QString& searchFilter) {
     QLayoutItem* item;
     while ((item = m_listLayout->takeAt(0)) != nullptr) {
         if (item->widget()) item->widget()->deleteLater();
@@ -172,6 +180,16 @@ void AllPanel::rebuildList() {
         entries.append(e);
     }
 
+    // Filter by search query if active
+    if (!searchFilter.isEmpty()) {
+        QVector<MixedEntry> filtered;
+        for (const auto& e : entries) {
+            if (matches(e.text, searchFilter) || matches(e.sub, searchFilter))
+                filtered.append(e);
+        }
+        entries = filtered;
+    }
+
     // Sort by created_at descending
     std::sort(entries.begin(), entries.end(),
               [](const MixedEntry& a, const MixedEntry& b) {
@@ -179,7 +197,19 @@ void AllPanel::rebuildList() {
               });
 
     if (entries.isEmpty()) {
-        showEmptyState();
+        if (!searchFilter.isEmpty()) {
+            auto* emptyWidget = new QWidget(m_listWidget);
+            auto* emptyLayout = new QVBoxLayout(emptyWidget);
+            emptyLayout->setAlignment(Qt::AlignCenter);
+            auto* l = new QLabel(QStringLiteral("🔍 未找到: %1").arg(searchFilter), emptyWidget);
+            l->setAlignment(Qt::AlignCenter);
+            emptyLayout->addStretch();
+            emptyLayout->addWidget(l);
+            emptyLayout->addStretch();
+            m_listLayout->addWidget(emptyWidget);
+        } else {
+            showEmptyState();
+        }
         return;
     }
 

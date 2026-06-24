@@ -31,6 +31,9 @@ struct CommandContext {
 
     /// Refresh the currently active tab panel.
     std::function<void()> refreshCurrentPanel;
+
+    /// Switch to All tab and show search results for the given query.
+    std::function<void(const QString&)> searchInAll;
 };
 
 /// Abstract base for a slash-command plugin.

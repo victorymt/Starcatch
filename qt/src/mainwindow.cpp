@@ -216,6 +216,10 @@ void MainWindow::dispatchCommand(const QString& action, const QString& text) {
         ctx.inputBar = m_quickInputBar;
         ctx.showToast = [this](const QString& t) { showToast(t); };
         ctx.refreshCurrentPanel = [this]() { refreshCurrentTab(); };
+        ctx.searchInAll = [this](const QString& q) {
+            m_tabWidget->setCurrentIndex(0);
+            m_allPanel->showSearchResults(q);
+        };
 
         bool clearInput = plugin->execute(text, ctx);
         if (clearInput) {
