@@ -54,12 +54,17 @@ public:
         contentLabel->setWordWrap(true);
         layout->addWidget(contentLabel, 1);
 
-        // Tags
+        // Tags — clickable pills
         for (const auto& tag : log.tags) {
-            auto* tagLabel = new QLabel(QStringLiteral("#%1").arg(tag), this);
+            auto* tagLabel = new QLabel(
+                QStringLiteral("<a href='tag:%1' style='color:#64b5f6;text-decoration:none;'>#%1</a>").arg(tag), this);
             tagLabel->setStyleSheet(QStringLiteral(
-                "color: #64b5f6; font-size: 10px; background: rgba(100,181,246,0.12);"
+                "font-size: 10px; background: rgba(100,181,246,0.12);"
                 "border-radius: 4px; padding: 1px 5px;"));
+            connect(tagLabel, &QLabel::linkActivated, this, [this](const QString& link) {
+                if (link.startsWith(QStringLiteral("tag:")))
+                    emit tagClicked(link.mid(4));
+            });
             layout->addWidget(tagLabel);
         }
 
@@ -78,6 +83,7 @@ public:
 
 signals:
     void deleteClicked(const QString& id);
+    void tagClicked(const QString& tag);
 
 private:
     QString m_id;
@@ -156,6 +162,8 @@ void LogPanel::rebuildList(const QVector<LogEntry>& logs) {
         auto* itemWidget = new LogItemWidget(log, m_listWidget);
         connect(itemWidget, &LogItemWidget::deleteClicked,
                 this, &LogPanel::handleDelete);
+        connect(itemWidget, &LogItemWidget::tagClicked,
+                this, &LogPanel::tagFilterRequested);
         m_listLayout->addWidget(itemWidget);
     }
 

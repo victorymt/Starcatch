@@ -15,6 +15,9 @@ public:
 
     void refresh();
 
+signals:
+    void tagFilterRequested(const QString& tag);
+
 private:
     void onFilterChanged();
     void rebuildList(const QVector<Todo>& todos);

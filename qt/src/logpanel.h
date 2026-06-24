@@ -16,6 +16,10 @@ public:
 
     void refresh();
 
+signals:
+    void tagFilterRequested(const QString& tag);
+
+public:
     static QString moodIcon(const QString& mood);
 
 private:

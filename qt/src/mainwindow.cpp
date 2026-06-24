@@ -13,6 +13,7 @@
 #include "commands/search_command.h"
 #include "commands/export_command.h"
 #include "commands/test_delete_command.h"
+#include "commands/stats_command.h"
 #include "theme.h"
 
 #include <QVBoxLayout>
@@ -82,6 +83,15 @@ void MainWindow::setupUi() {
 
     connect(m_quickInputBar, &QuickInputBar::commandRequested,
             this, &MainWindow::dispatchCommand);
+
+    // Click tag → filter in All tab
+    auto filterTag = [this](const QString& tag) {
+        m_tabWidget->setCurrentIndex(0);
+        m_allPanel->showSearchResults(QStringLiteral("#%1").arg(tag));
+    };
+    connect(m_todoPanel, &TodoPanel::tagFilterRequested, this, filterTag);
+    connect(m_ideaPanel, &IdeaPanel::tagFilterRequested, this, filterTag);
+    connect(m_logPanel,  &LogPanel::tagFilterRequested,  this, filterTag);
 }
 
 void MainWindow::setupShortcuts() {
@@ -116,6 +126,7 @@ void MainWindow::registerCommands() {
     registerCommand<SearchCommand>();
     registerCommand<ExportCommand>();
     registerCommand<TestDeleteAllCommand>();
+    registerCommand<StatsCommand>();
 }
 
 QString MainWindow::determineDbPath() {

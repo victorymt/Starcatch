@@ -16,6 +16,9 @@ public:
 
     void refresh();
 
+signals:
+    void tagFilterRequested(const QString& tag);
+
 private:
     void onDaysChanged(int days);
     void rebuildList(const QVector<Idea>& ideas);

@@ -73,13 +73,17 @@ public:
         m_titleLabel->setWordWrap(true);
         layout->addWidget(m_titleLabel, 1);
 
-        // Tags — tiny pills
+        // Tags — clickable pills
         for (const auto& tag : todo.tags) {
-            auto* tagLabel = new QLabel(QStringLiteral("#%1").arg(tag), this);
+            auto* tagLabel = new QLabel(
+                QStringLiteral("<a href='tag:%1' style='color:#64b5f6;text-decoration:none;'>#%1</a>").arg(tag), this);
             tagLabel->setStyleSheet(QStringLiteral(
-                "color: #64b5f6; font-size: 10px; background: rgba(100,181,246,0.12);"
-                "border-radius: 4px; padding: 1px 5px;"
-            ));
+                "font-size: 10px; background: rgba(100,181,246,0.12);"
+                "border-radius: 4px; padding: 1px 5px;"));
+            connect(tagLabel, &QLabel::linkActivated, this, [this](const QString& link) {
+                if (link.startsWith(QStringLiteral("tag:")))
+                    emit tagClicked(link.mid(4));
+            });
             layout->addWidget(tagLabel);
         }
 
@@ -186,6 +190,7 @@ signals:
     void deleteClicked(const QString& id);
     void archiveClicked(const QString& id);
     void titleEdited(const QString& id, const QString& newTitle);
+    void tagClicked(const QString& tag);
 
 private:
     QString m_id;
@@ -315,6 +320,8 @@ void TodoPanel::rebuildList(const QVector<Todo>& todos) {
                 this, &TodoPanel::handleArchive);
         connect(itemWidget, &TodoItemWidget::titleEdited,
                 this, &TodoPanel::handleTitleEdit);
+        connect(itemWidget, &TodoItemWidget::tagClicked,
+                this, &TodoPanel::tagFilterRequested);
 
         m_listLayout->addWidget(itemWidget);
     }

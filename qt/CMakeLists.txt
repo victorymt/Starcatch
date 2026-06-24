@@ -40,6 +40,7 @@ set(HEADERS
     src/commands/search_command.h
     src/commands/export_command.h
     src/commands/test_delete_command.h
+    src/commands/stats_command.h
 )
 
 add_executable(starcatch-qt ${SOURCES} ${HEADERS})
