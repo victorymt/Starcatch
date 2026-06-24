@@ -9,6 +9,7 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Sql)
 
 set(SOURCES
     src/main.cpp
+    src/allpanel.cpp
     src/database.cpp
     src/command_plugin.cpp
     src/inputparser.cpp
@@ -22,6 +23,7 @@ set(SOURCES
 )
 
 set(HEADERS
+    src/allpanel.h
     src/models.h
     src/command_plugin.h
     src/database.h

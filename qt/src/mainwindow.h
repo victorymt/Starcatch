@@ -9,6 +9,7 @@ class Database;
 class TodoPanel;
 class IdeaPanel;
 class LogPanel;
+class AllPanel;
 class QuickInputBar;
 class ToastWidget;
 struct CommandContext;
@@ -40,6 +41,7 @@ private:
     TodoPanel*     m_todoPanel = nullptr;
     IdeaPanel*     m_ideaPanel = nullptr;
     LogPanel*      m_logPanel = nullptr;
+    AllPanel*      m_allPanel = nullptr;
     QuickInputBar* m_quickInputBar = nullptr;
     ToastWidget*   m_toast = nullptr;
 };

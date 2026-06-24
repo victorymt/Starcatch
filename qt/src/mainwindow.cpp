@@ -3,6 +3,7 @@
 #include "todopanel.h"
 #include "ideapanel.h"
 #include "logpanel.h"
+#include "allpanel.h"
 #include "quickinputbar.h"
 #include "toastwidget.h"
 #include "inputparser.h"
@@ -52,7 +53,9 @@ void MainWindow::setupUi() {
     m_todoPanel = new TodoPanel(m_db, this);
     m_ideaPanel = new IdeaPanel(m_db, this);
     m_logPanel  = new LogPanel(m_db, this);
+    m_allPanel  = new AllPanel(m_db, this);
 
+    m_tabWidget->addTab(m_allPanel,  QStringLiteral("🌐 All"));
     m_tabWidget->addTab(m_todoPanel, QStringLiteral("📋 Todo"));
     m_tabWidget->addTab(m_ideaPanel, QStringLiteral("💭 Idea"));
     m_tabWidget->addTab(m_logPanel,  QStringLiteral("📓 Log"));
@@ -87,8 +90,8 @@ void MainWindow::setupShortcuts() {
         ThemeManager::instance().toggle();
     });
 
-    // Ctrl+1/2/3 to switch tabs
-    for (int i = 0; i < 3; ++i) {
+    // Ctrl+1/2/3/4 to switch tabs
+    for (int i = 0; i < 4; ++i) {
         auto* tabShortcut = new QShortcut(
             QKeySequence(static_cast<Qt::Key>(Qt::Key_1 + i) | Qt::CTRL), this);
         connect(tabShortcut, &QShortcut::activated, this, [this, i]() {
@@ -120,9 +123,10 @@ QString MainWindow::determineDbPath() {
 
 void MainWindow::onTabChanged(int index) {
     switch (index) {
-        case 0: m_todoPanel->refresh(); break;
-        case 1: m_ideaPanel->refresh(); break;
-        case 2: m_logPanel->refresh();  break;
+        case 0: m_allPanel->refresh();  break;
+        case 1: m_todoPanel->refresh(); break;
+        case 2: m_ideaPanel->refresh(); break;
+        case 3: m_logPanel->refresh();  break;
     }
     updateTabLabels();
     m_quickInputBar->focusInput();
@@ -187,15 +191,19 @@ void MainWindow::updateTabLabels() {
     for (const auto& t : todos) {
         if (t.status == TodoStatus::Pending) ++activeCount;
     }
-    m_tabWidget->setTabText(0,
-        QStringLiteral("📋 Todo (%1/%2)").arg(activeCount).arg(todos.size()));
+    int total = activeCount + (int)todos.size() - activeCount; // pending + done
 
     auto ideas = m_db->listIdeas(7);
-    m_tabWidget->setTabText(1,
-        QStringLiteral("💭 Idea (%1)").arg(ideas.size()));
-
     auto logs = m_db->listLogs(1);
+
+    int allCount = (int)todos.size() + ideas.size() + logs.size();
+    m_tabWidget->setTabText(0,
+        QStringLiteral("🌐 All (%1)").arg(allCount));
+    m_tabWidget->setTabText(1,
+        QStringLiteral("📋 Todo (%1/%2)").arg(activeCount).arg(todos.size()));
     m_tabWidget->setTabText(2,
+        QStringLiteral("💭 Idea (%1)").arg(ideas.size()));
+    m_tabWidget->setTabText(3,
         QStringLiteral("📓 Log (%1)").arg(logs.size()));
 }
 
