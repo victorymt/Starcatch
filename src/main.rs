@@ -4,8 +4,9 @@ mod models;
 
 use std::io::Read;
 
-use chrono::Utc;
+use chrono::{Datelike, Duration, Utc, Weekday};
 use clap::Parser;
+use regex::Regex;
 
 use cli::*;
 use models::*;
@@ -53,6 +54,100 @@ fn main() {
     }
 }
 
+// ─── Natural date parser ───
+
+fn parse_natural_date(text: &str) -> Option<String> {
+    let today = Utc::now().date_naive();
+    let t = text.trim();
+
+    // Already yyyy-MM-dd
+    if Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap().is_match(t) {
+        return Some(t.to_string());
+    }
+
+    // Numeric: N (days later)
+    if let Some(cap) = Regex::new(r"^(\d+)\s*(天|d|day|days)?(后|後| later)?$").unwrap().captures(t) {
+        let n: i64 = cap[1].parse().unwrap_or(0);
+        return Some((today + Duration::days(n)).format("%Y-%m-%d").to_string());
+    }
+
+    // Day-of-week maps
+    let dow_en: Vec<(&str, Weekday)> = vec![
+        ("mon", Weekday::Mon), ("monday", Weekday::Mon),
+        ("tue", Weekday::Tue), ("tuesday", Weekday::Tue),
+        ("wed", Weekday::Wed), ("wednesday", Weekday::Wed),
+        ("thu", Weekday::Thu), ("thursday", Weekday::Thu),
+        ("fri", Weekday::Fri), ("friday", Weekday::Fri),
+        ("sat", Weekday::Sat), ("saturday", Weekday::Sat),
+        ("sun", Weekday::Sun), ("sunday", Weekday::Sun),
+    ];
+    let dow_zh: Vec<(&str, Weekday)> = vec![
+        ("一", Weekday::Mon), ("二", Weekday::Tue), ("三", Weekday::Wed),
+        ("四", Weekday::Thu), ("五", Weekday::Fri), ("六", Weekday::Sat),
+        ("日", Weekday::Sun), ("天", Weekday::Sun),
+    ];
+
+    // Absolute keywords
+    match t {
+        "今天" | "today" => return Some(today.format("%Y-%m-%d").to_string()),
+        "明天" | "tomorrow" => return Some((today + Duration::days(1)).format("%Y-%m-%d").to_string()),
+        "后天" | "後天" => return Some((today + Duration::days(2)).format("%Y-%m-%d").to_string()),
+        "大后天" | "大後天" => return Some((today + Duration::days(3)).format("%Y-%m-%d").to_string()),
+        "昨天" | "yesterday" => return Some((today + Duration::days(-1)).format("%Y-%m-%d").to_string()),
+        "下周" | "下週" | "next week" => {
+            let delta = 8 - today.weekday().num_days_from_monday() as i64;
+            return Some((today + Duration::days(delta)).format("%Y-%m-%d").to_string());
+        }
+        _ => {}
+    }
+
+    // "next <weekday>"
+    let re = Regex::new(r"^next\s+(\w+)").unwrap();
+    if let Some(cap) = re.captures(t) {
+        let w = cap[1].to_lowercase();
+        for (key, wd) in &dow_en {
+            if w == *key {
+                let target = wd.num_days_from_monday() as i64;
+                let cur = today.weekday().num_days_from_monday() as i64;
+                let mut delta = target - cur;
+                if delta <= 0 { delta += 7; }
+                return Some((today + Duration::days(delta)).format("%Y-%m-%d").to_string());
+            }
+        }
+    }
+
+    // "下<星期X>" / "下周<X>"
+    let re = Regex::new(r"^下(?:周|星期|礼拜)?(.)").unwrap();
+    if let Some(cap) = re.captures(t) {
+        let ch = &cap[1];
+        for (key, wd) in &dow_zh {
+            if ch == *key {
+                let target = wd.num_days_from_monday() as i64;
+                let cur = today.weekday().num_days_from_monday() as i64;
+                let mut delta = target - cur;
+                if delta <= 0 { delta += 7; }
+                return Some((today + Duration::days(delta)).format("%Y-%m-%d").to_string());
+            }
+        }
+    }
+
+    // "本周X" / "这周X"
+    let re = Regex::new(r"^(?:这|本|这周|本周|这星期|本星期)(?:周|星期|礼拜)?(.)").unwrap();
+    if let Some(cap) = re.captures(t) {
+        let ch = &cap[1];
+        for (key, wd) in &dow_zh {
+            if ch == *key {
+                let target = wd.num_days_from_monday() as i64;
+                let cur = today.weekday().num_days_from_monday() as i64;
+                let delta = target - cur;
+                return Some((today + Duration::days(delta)).format("%Y-%m-%d").to_string());
+            }
+        }
+    }
+
+    None
+}
+
 // ─── Todo ───
 
 fn handle_todo(cmd: &TodoCommands, db_path: Option<&str>) -> rusqlite::Result<()> {
@@ -83,13 +178,15 @@ fn handle_todo_add(args: &TodoAddArgs, conn: &rusqlite::Connection) -> rusqlite:
     };
     let icon = priority.icon();
 
+    let due_date = args.due.as_deref().and_then(parse_natural_date);
+
     let todo = Todo {
         id: uuid::Uuid::new_v4().to_string(),
         title: args.title.clone(),
         description: args.desc.clone(),
         priority,
         status: TodoStatus::Pending,
-        due_date: args.due.clone(),
+        due_date,
         tags: parse_tags(args.tag.as_deref()),
         project: args.project.clone(),
         created_at: Utc::now(),
