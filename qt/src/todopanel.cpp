@@ -9,6 +9,7 @@
 #include <QToolButton>
 #include <QDate>
 #include <QMouseEvent>
+#include <QKeyEvent>
 #include <QLineEdit>
 #include <QSqlQuery>
 #include <QSqlError>
@@ -303,6 +304,8 @@ void TodoPanel::rebuildList(const QVector<Todo>& todos) {
         if (item->widget()) item->widget()->deleteLater();
         delete item;
     }
+    m_itemIds.clear();
+    m_selectedIndex = -1;
 
     if (todos.isEmpty()) {
         showEmptyState();
@@ -310,6 +313,7 @@ void TodoPanel::rebuildList(const QVector<Todo>& todos) {
     }
 
     for (const auto& todo : todos) {
+        m_itemIds.append(todo.id);
         auto* itemWidget = new TodoItemWidget(todo, m_listWidget);
 
         connect(itemWidget, &TodoItemWidget::toggled,
@@ -373,6 +377,53 @@ void TodoPanel::handleTitleEdit(const QString& id, const QString& newTitle) {
         qWarning() << "handleTitleEdit failed:" << q.lastError().text();
     }
     refresh();
+}
+
+void TodoPanel::keyPressEvent(QKeyEvent* ev) {
+    if (m_itemIds.isEmpty()) {
+        QWidget::keyPressEvent(ev);
+        return;
+    }
+
+    if (ev->key() == Qt::Key_J || ev->key() == Qt::Key_Down) {
+        m_selectedIndex = qMin(m_selectedIndex + 1, m_itemIds.size() - 1);
+        updateSelectionHighlight();
+        return;
+    }
+    if (ev->key() == Qt::Key_K || ev->key() == Qt::Key_Up) {
+        m_selectedIndex = qMax(m_selectedIndex - 1, 0);
+        updateSelectionHighlight();
+        return;
+    }
+    if (ev->key() == Qt::Key_Return || ev->key() == Qt::Key_Enter) {
+        if (m_selectedIndex >= 0 && m_selectedIndex < m_itemIds.size()) {
+            // Find the checkbox and toggle it
+            auto* item = m_listLayout->itemAt(m_selectedIndex);
+            if (item && item->widget()) {
+                auto* cb = item->widget()->findChild<QCheckBox*>();
+                if (cb && cb->isEnabled()) {
+                    cb->toggle();
+                }
+            }
+        }
+        return;
+    }
+    QWidget::keyPressEvent(ev);
+}
+
+void TodoPanel::updateSelectionHighlight() {
+    for (int i = 0; i < m_listLayout->count(); ++i) {
+        auto* li = m_listLayout->itemAt(i);
+        if (li && li->widget()) {
+            auto* w = li->widget();
+            if (i == m_selectedIndex)
+                w->setStyleSheet(w->styleSheet() + QStringLiteral(
+                    "QFrame[card=\"true\"] { border: 1px solid #64b5f6; }"));
+            else
+                w->setStyleSheet(w->styleSheet().replace(
+                    QStringLiteral("QFrame[card=\"true\"] { border: 1px solid #64b5f6; }"), QString()));
+        }
+    }
 }
 
 #include "todopanel.moc"

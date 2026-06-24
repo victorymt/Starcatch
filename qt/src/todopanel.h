@@ -18,10 +18,14 @@ public:
 signals:
     void tagFilterRequested(const QString& tag);
 
+protected:
+    void keyPressEvent(QKeyEvent* ev) override;
+
 private:
     void onFilterChanged();
     void rebuildList(const QVector<Todo>& todos);
     void showEmptyState();
+    void updateSelectionHighlight();
 
     void handleToggle(const QString& id, bool done);
     void handleDelete(const QString& id);
@@ -34,4 +38,6 @@ private:
     QWidget*      m_listWidget;
     QVBoxLayout*  m_listLayout;
     TodoFilter    m_currentFilter = TodoFilter::Active;
+    int           m_selectedIndex = -1;
+    QVector<QString> m_itemIds;  // track IDs for selection lookup
 };
