@@ -42,7 +42,8 @@ public:
         for (const auto& tag : idea.tags) {
             auto* tagLabel = new QLabel(QStringLiteral("#%1").arg(tag), this);
             tagLabel->setStyleSheet(QStringLiteral(
-                "color: #64b5f6; font-size: 10px; font-weight: bold;"));
+                "color: #64b5f6; font-size: 10px; background: rgba(100,181,246,0.12);"
+                "border-radius: 4px; padding: 1px 5px;"));
             layout->addWidget(tagLabel);
         }
 

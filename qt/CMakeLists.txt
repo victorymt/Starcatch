@@ -35,6 +35,8 @@ set(HEADERS
     src/theme.h
     src/commands/help_command.h
     src/commands/theme_command.h
+    src/commands/search_command.h
+    src/commands/export_command.h
 )
 
 add_executable(starcatch-qt ${SOURCES} ${HEADERS})

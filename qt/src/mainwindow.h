@@ -32,6 +32,7 @@ private:
     void setupShortcuts();
     void registerCommands();
     void dispatchCommand(const QString& action, const QString& text);
+    void updateTabLabels();
     QString determineDbPath();
 
     Database*      m_db = nullptr;

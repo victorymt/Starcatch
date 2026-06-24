@@ -9,6 +9,8 @@
 #include "command_plugin.h"
 #include "commands/help_command.h"
 #include "commands/theme_command.h"
+#include "commands/search_command.h"
+#include "commands/export_command.h"
 #include "theme.h"
 
 #include <QVBoxLayout>
@@ -84,11 +86,29 @@ void MainWindow::setupShortcuts() {
     connect(themeShortcut, &QShortcut::activated, this, []() {
         ThemeManager::instance().toggle();
     });
+
+    // Ctrl+1/2/3 to switch tabs
+    for (int i = 0; i < 3; ++i) {
+        auto* tabShortcut = new QShortcut(
+            QKeySequence(static_cast<Qt::Key>(Qt::Key_1 + i) | Qt::CTRL), this);
+        connect(tabShortcut, &QShortcut::activated, this, [this, i]() {
+            m_tabWidget->setCurrentIndex(i);
+        });
+    }
+
+    // Ctrl+N to focus input
+    auto* focusShortcut = new QShortcut(
+        QKeySequence(Qt::Key_N | Qt::CTRL), this);
+    connect(focusShortcut, &QShortcut::activated, this, [this]() {
+        m_quickInputBar->focusInput();
+    });
 }
 
 void MainWindow::registerCommands() {
     registerCommand<HelpCommand>();
     registerCommand<ThemeCommand>();
+    registerCommand<SearchCommand>();
+    registerCommand<ExportCommand>();
 }
 
 QString MainWindow::determineDbPath() {
@@ -104,6 +124,7 @@ void MainWindow::onTabChanged(int index) {
         case 1: m_ideaPanel->refresh(); break;
         case 2: m_logPanel->refresh();  break;
     }
+    updateTabLabels();
     m_quickInputBar->focusInput();
 }
 
@@ -152,10 +173,30 @@ void MainWindow::quickCapture(const QString& text, QuickKind kind) {
     m_quickInputBar->clearInput();
     m_quickInputBar->focusInput();
     refreshCurrentTab();
+    updateTabLabels();
 }
 
 void MainWindow::showToast(const QString& text) {
     m_toast->showToast(text);
+}
+
+void MainWindow::updateTabLabels() {
+    auto todos = m_db->listTodosByStatuses(
+        {QStringLiteral("pending"), QStringLiteral("done")});
+    int activeCount = 0;
+    for (const auto& t : todos) {
+        if (t.status == TodoStatus::Pending) ++activeCount;
+    }
+    m_tabWidget->setTabText(0,
+        QStringLiteral("📋 Todo (%1/%2)").arg(activeCount).arg(todos.size()));
+
+    auto ideas = m_db->listIdeas(7);
+    m_tabWidget->setTabText(1,
+        QStringLiteral("💭 Idea (%1)").arg(ideas.size()));
+
+    auto logs = m_db->listLogs(1);
+    m_tabWidget->setTabText(2,
+        QStringLiteral("📓 Log (%1)").arg(logs.size()));
 }
 
 void MainWindow::dispatchCommand(const QString& action, const QString& text) {
