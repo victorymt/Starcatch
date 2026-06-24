@@ -1,5 +1,8 @@
 #include "quickinputbar.h"
+#include "command_plugin.h"
 #include <QHBoxLayout>
+#include <QKeyEvent>
+#include <algorithm>
 
 QuickInputBar::QuickInputBar(QWidget* parent)
     : QWidget(parent)
@@ -80,6 +83,9 @@ QuickInputBar::QuickInputBar(QWidget* parent)
             emit captureRequested(text, currentKind());
         }
     });
+
+    // Tab completion for commands
+    m_input->installEventFilter(this);
 
     // ➕ button → same as Enter
     connect(m_submitBtn, &QPushButton::clicked, this, [this]() {
@@ -170,4 +176,44 @@ ParsedCommand QuickInputBar::parseCommand(const QString& text) const {
     }
 
     return cmd;
+}
+
+bool QuickInputBar::eventFilter(QObject* obj, QEvent* ev) {
+    if (obj == m_input && ev->type() == QEvent::KeyPress) {
+        auto* ke = static_cast<QKeyEvent*>(ev);
+        if (ke->key() == Qt::Key_Tab) {
+            QString text = m_input->text();
+            // Only complete if text starts with / and cursor is at end
+            if (text.startsWith(QChar('/')) && m_input->cursorPosition() == text.length()) {
+                int spaceIdx = text.indexOf(QChar(' '));
+                QString partial = (spaceIdx > 0) ? text.left(spaceIdx).mid(1) : text.mid(1);
+                if (!partial.isEmpty()) {
+                    // Find matching commands
+                    QStringList matches;
+                    for (auto* p : CommandRegistry::instance().all()) {
+                        if (p->name().startsWith(partial))
+                            matches << p->name();
+                    }
+                    if (matches.size() == 1) {
+                        // Exact match — complete it
+                        m_input->setText(QStringLiteral("/%1 ").arg(matches.first()));
+                        return true;
+                    } else if (matches.size() > 1) {
+                        // Multiple matches — complete to common prefix
+                        QString common = matches.first();
+                        for (const auto& m : matches)
+                            common = common.left(std::min(common.length(), m.length()));
+                        // Truncate common to shared prefix
+                        while (common.length() > partial.length() && !std::all_of(matches.begin(), matches.end(),
+                            [&](const QString& m) { return m.startsWith(common); }))
+                            common.chop(1);
+
+                        m_input->setText(QStringLiteral("/%1").arg(common));
+                    }
+                }
+            }
+            return true;
+        }
+    }
+    return QWidget::eventFilter(obj, ev);
 }

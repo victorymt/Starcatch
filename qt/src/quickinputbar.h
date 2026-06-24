@@ -26,6 +26,9 @@ public:
     void focusInput();
     QuickKind currentKind() const;
 
+protected:
+    bool eventFilter(QObject* obj, QEvent* ev) override;
+
 signals:
     /// Normal capture: user typed regular text and pressed Enter
     void captureRequested(const QString& text, QuickKind kind);
