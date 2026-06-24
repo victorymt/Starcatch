@@ -33,14 +33,17 @@ public:
     LogItemWidget(const LogEntry& log, QWidget* parent = nullptr)
         : QFrame(parent), m_id(log.id)
     {
-        auto* layout = new QHBoxLayout(this);
-        layout->setContentsMargins(4, 2, 4, 2);
+        setProperty("card", true);
 
-        layout->addWidget(new QLabel(QStringLiteral("📝"), this)); // 📝
+        auto* layout = new QHBoxLayout(this);
+        layout->setContentsMargins(10, 6, 10, 6);
+        layout->setSpacing(8);
+
+        layout->addWidget(new QLabel(QStringLiteral("📝"), this));
 
         auto* timeLabel = new QLabel(
             log.createdAt.toLocalTime().toString(QStringLiteral("MM-dd HH:mm")), this);
-        timeLabel->setStyleSheet(QStringLiteral("color: #aaa; font-size: 11px;"));
+        timeLabel->setStyleSheet(QStringLiteral("color: #999; font-size: 11px;"));
         layout->addWidget(timeLabel);
 
         if (!log.mood.isEmpty()) {
@@ -51,9 +54,22 @@ public:
         contentLabel->setWordWrap(true);
         layout->addWidget(contentLabel, 1);
 
+        // Tags
+        for (const auto& tag : log.tags) {
+            auto* tagLabel = new QLabel(QStringLiteral("#%1").arg(tag), this);
+            tagLabel->setStyleSheet(QStringLiteral(
+                "color: #64b5f6; font-size: 10px; background: rgba(100,181,246,0.12);"
+                "border-radius: 4px; padding: 1px 5px;"));
+            layout->addWidget(tagLabel);
+        }
+
         auto* delBtn = new QToolButton(this);
-        delBtn->setText(QStringLiteral("🗑")); // 🗑
+        delBtn->setText(QStringLiteral("🗑"));
         delBtn->setAutoRaise(true);
+        delBtn->setToolTip(QStringLiteral("删除"));
+        delBtn->setStyleSheet(QStringLiteral(
+            "QToolButton { color: #888; }"
+            "QToolButton:hover { color: #e53935; background: rgba(229,57,53,0.15); }"));
         connect(delBtn, &QToolButton::clicked, this, [this]() {
             emit deleteClicked(m_id);
         });

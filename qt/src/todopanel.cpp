@@ -28,14 +28,20 @@ public:
     TodoItemWidget(const Todo& todo, QWidget* parent = nullptr)
         : QFrame(parent), m_id(todo.id)
     {
-        auto* layout = new QHBoxLayout(this);
-        layout->setContentsMargins(4, 2, 4, 2);
+        setProperty("card", true);
 
-        // Priority badge
+        auto* layout = new QHBoxLayout(this);
+        layout->setContentsMargins(10, 6, 10, 6);
+        layout->setSpacing(8);
+
+        // Priority badge — colored pill
         auto* badge = new QLabel(priorityToString(todo.priority), this);
-        badge->setStyleSheet(QStringLiteral("color: %1; font-weight: bold; font-size: 11px;")
-            .arg(priorityColor(todo.priority)));
-        badge->setFixedWidth(24);
+        badge->setAlignment(Qt::AlignCenter);
+        badge->setFixedSize(28, 20);
+        badge->setStyleSheet(QStringLiteral(
+            "background: %1; color: #fff; font-weight: bold; font-size: 10px;"
+            "border-radius: 10px; padding: 1px 6px;"
+        ).arg(priorityColor(todo.priority)));
         layout->addWidget(badge);
 
         // Checkbox
@@ -53,54 +59,57 @@ public:
         auto* titleLabel = new QLabel(todo.title, this);
         if (isDone) {
             titleLabel->setText(QStringLiteral("<s>%1</s>").arg(todo.title.toHtmlEscaped()));
-            titleLabel->setStyleSheet(QStringLiteral("color: #888;"));
+            titleLabel->setStyleSheet(QStringLiteral("color: #777;"));
         } else if (isArchived) {
             titleLabel->setStyleSheet(QStringLiteral("color: #555;"));
         }
         titleLabel->setWordWrap(true);
         layout->addWidget(titleLabel, 1);
 
-        // Right-side items
-        // Delete button
-        auto* delBtn = new QToolButton(this);
-        delBtn->setText(QStringLiteral("🗑")); // 🗑 as bytes
-        delBtn->setAutoRaise(true);
-        connect(delBtn, &QToolButton::clicked, this, [this]() {
-            emit deleteClicked(m_id);
-        });
-        layout->addWidget(delBtn);
+        // Tags — tiny pills
+        for (const auto& tag : todo.tags) {
+            auto* tagLabel = new QLabel(QStringLiteral("#%1").arg(tag), this);
+            tagLabel->setStyleSheet(QStringLiteral(
+                "color: #64b5f6; font-size: 10px; background: rgba(100,181,246,0.12);"
+                "border-radius: 4px; padding: 1px 5px;"
+            ));
+            layout->addWidget(tagLabel);
+        }
+
+        // Due date
+        if (!todo.dueDate.isEmpty()) {
+            auto* dueLabel = new QLabel(todo.dueDate, this);
+            dueLabel->setStyleSheet(QStringLiteral(
+                "color: #ef9a9a; font-size: 11px; font-weight: bold;"
+            ));
+            layout->addWidget(dueLabel);
+        }
 
         // Archive button (only for non-archived)
         if (!isArchived) {
             auto* archiveBtn = new QToolButton(this);
-            archiveBtn->setText(QStringLiteral("📦")); // 📦 as bytes
+            archiveBtn->setText(QStringLiteral("📦"));
             archiveBtn->setAutoRaise(true);
+            archiveBtn->setToolTip(QStringLiteral("归档"));
             connect(archiveBtn, &QToolButton::clicked, this, [this]() {
                 emit archiveClicked(m_id);
             });
             layout->addWidget(archiveBtn);
         }
 
-        // Due date
-        if (!todo.dueDate.isEmpty()) {
-            auto* dueLabel = new QLabel(todo.dueDate, this);
-            dueLabel->setStyleSheet(QStringLiteral("color: #64b5f6; font-size: 11px;"));
-            layout->addWidget(dueLabel);
-        }
-
-        // Tags
-        for (const auto& tag : todo.tags) {
-            auto* tagLabel = new QLabel(QStringLiteral("#%1").arg(tag), this);
-            tagLabel->setStyleSheet(QStringLiteral("color: #64b5f6; font-size: 11px;"));
-            layout->addWidget(tagLabel);
-        }
-
-        // Background tint
-        if (isArchived) {
-            setStyleSheet(QStringLiteral("TodoItemWidget { background: rgba(40,40,40,20); }"));
-        } else if (isDone) {
-            setStyleSheet(QStringLiteral("TodoItemWidget { background: rgba(30,60,30,20); }"));
-        }
+        // Delete button
+        auto* delBtn = new QToolButton(this);
+        delBtn->setText(QStringLiteral("🗑"));
+        delBtn->setAutoRaise(true);
+        delBtn->setToolTip(QStringLiteral("删除"));
+        delBtn->setStyleSheet(QStringLiteral(
+            "QToolButton { color: #888; }"
+            "QToolButton:hover { color: #e53935; background: rgba(229,57,53,0.15); }"
+        ));
+        connect(delBtn, &QToolButton::clicked, this, [this]() {
+            emit deleteClicked(m_id);
+        });
+        layout->addWidget(delBtn);
     }
 
 signals:
