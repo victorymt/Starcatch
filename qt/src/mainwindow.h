@@ -11,6 +11,7 @@ class IdeaPanel;
 class LogPanel;
 class QuickInputBar;
 class ToastWidget;
+struct CommandContext;
 
 class MainWindow : public QWidget {
     Q_OBJECT
@@ -18,16 +19,19 @@ public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow();
 
+    // Exposed for CommandContext — plugins call these
+    void showToast(const QString& text);
+    void refreshCurrentTab();
+
 private slots:
     void onTabChanged(int index);
-    void refreshCurrentTab();
     void quickCapture(const QString& text, QuickKind kind);
-    void handleCommand(const QString& action, const QString& text);
 
 private:
     void setupUi();
     void setupShortcuts();
-    void showToast(const QString& text);
+    void registerCommands();
+    void dispatchCommand(const QString& action, const QString& text);
     QString determineDbPath();
 
     Database*      m_db = nullptr;

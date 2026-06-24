@@ -6,16 +6,17 @@
 #include "quickinputbar.h"
 #include "toastwidget.h"
 #include "inputparser.h"
+#include "command_plugin.h"
+#include "commands/help_command.h"
 
 #include <QVBoxLayout>
 #include <QDir>
 #include <QUuid>
-#include <QMessageBox>
 
 MainWindow::MainWindow(QWidget* parent)
     : QWidget(parent)
 {
-    setWindowTitle(QStringLiteral("⭐ Starcatch 星捕")); // ⭐ Starcatch 星捕
+    setWindowTitle(QStringLiteral("⭐ Starcatch 星捕"));
     resize(420, 520);
     setMinimumSize(360, 400);
 
@@ -26,6 +27,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     setupUi();
     setupShortcuts();
+    registerCommands();
 
     // Initial load
     m_todoPanel->refresh();
@@ -47,9 +49,9 @@ void MainWindow::setupUi() {
     m_ideaPanel = new IdeaPanel(m_db, this);
     m_logPanel  = new LogPanel(m_db, this);
 
-    m_tabWidget->addTab(m_todoPanel, QStringLiteral("📋 Todo"));  // 📋
-    m_tabWidget->addTab(m_ideaPanel, QStringLiteral("💭 Idea"));  // 💭
-    m_tabWidget->addTab(m_logPanel,  QStringLiteral("📓 Log"));   // 📓
+    m_tabWidget->addTab(m_todoPanel, QStringLiteral("📋 Todo"));
+    m_tabWidget->addTab(m_ideaPanel, QStringLiteral("💭 Idea"));
+    m_tabWidget->addTab(m_logPanel,  QStringLiteral("📓 Log"));
 
     mainLayout->addWidget(m_tabWidget, 1);
 
@@ -69,13 +71,20 @@ void MainWindow::setupUi() {
             this, &MainWindow::quickCapture);
 
     connect(m_quickInputBar, &QuickInputBar::commandRequested,
-            this, &MainWindow::handleCommand);
+            this, &MainWindow::dispatchCommand);
 }
 
 void MainWindow::setupShortcuts() {
-    // Escape closes window
     auto* escShortcut = new QShortcut(Qt::Key_Escape, this);
     connect(escShortcut, &QShortcut::activated, this, &QWidget::close);
+}
+
+void MainWindow::registerCommands() {
+    registerCommand<HelpCommand>();
+    // Future commands — one line each:
+    // registerCommand<SearchCommand>();
+    // registerCommand<StatsCommand>();
+    // registerCommand<ExportCommand>();
 }
 
 QString MainWindow::determineDbPath() {
@@ -135,7 +144,7 @@ void MainWindow::quickCapture(const QString& text, QuickKind kind) {
         }
     }
 
-    showToast(QStringLiteral("✅ %1").arg(text)); // ✅ text
+    showToast(QStringLiteral("✅ %1").arg(text));
     m_quickInputBar->clearInput();
     m_quickInputBar->focusInput();
     refreshCurrentTab();
@@ -145,25 +154,21 @@ void MainWindow::showToast(const QString& text) {
     m_toast->showToast(text);
 }
 
-void MainWindow::handleCommand(const QString& action, const QString& text) {
-    if (action == QStringLiteral("help")) {
-        QMessageBox::information(this,
-            QStringLiteral("Starcatch 命令"),
-            QStringLiteral(
-                "可用命令：\n\n"
-                "  /t [内容]    切换到 Todo 输入\n"
-                "  /i [内容]    切换到 Idea 输入\n"
-                "  /l [内容]    切换到 Log 输入\n"
-                "  /help        显示此帮助\n\n"
-                "快速输入语法 (Todo)：\n"
-                "  P0-P3        优先级\n"
-                "  due:YYYY-MM-DD  截止日期\n"
-                "  #标签        标签\n\n"
-                "快捷键：\n"
-                "  Enter  提交\n"
-                "  Esc    关闭窗口"
-            ));
-        m_quickInputBar->focusInput();
+void MainWindow::dispatchCommand(const QString& action, const QString& text) {
+    CommandPlugin* plugin = CommandRegistry::instance().find(action);
+    if (plugin) {
+        CommandContext ctx;
+        ctx.db = m_db;
+        ctx.parentWindow = this;
+        ctx.inputBar = m_quickInputBar;
+        ctx.showToast = [this](const QString& t) { showToast(t); };
+        ctx.refreshCurrentPanel = [this]() { refreshCurrentTab(); };
+
+        bool clearInput = plugin->execute(text, ctx);
+        if (clearInput) {
+            m_quickInputBar->clearInput();
+            m_quickInputBar->focusInput();
+        }
     } else {
         showToast(QStringLiteral("❓ 未知命令: /%1").arg(action));
     }

@@ -10,6 +10,7 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Sql)
 set(SOURCES
     src/main.cpp
     src/database.cpp
+    src/command_plugin.cpp
     src/inputparser.cpp
     src/mainwindow.cpp
     src/todopanel.cpp
@@ -21,6 +22,7 @@ set(SOURCES
 
 set(HEADERS
     src/models.h
+    src/command_plugin.h
     src/database.h
     src/inputparser.h
     src/mainwindow.h
@@ -29,6 +31,7 @@ set(HEADERS
     src/logpanel.h
     src/quickinputbar.h
     src/toastwidget.h
+    src/commands/help_command.h
 )
 
 add_executable(starcatch-qt ${SOURCES} ${HEADERS})
