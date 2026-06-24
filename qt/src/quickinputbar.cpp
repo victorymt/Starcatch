@@ -212,8 +212,15 @@ bool QuickInputBar::eventFilter(QObject* obj, QEvent* ev) {
                     m_input->setText(QStringLiteral("/%1 ").arg(matches.first()));
                     m_tabCycleIndex = -1;
                 } else {
-                    m_tabCycleIndex = (m_tabCycleIndex + 1) % matches.size();
-                    m_input->setText(QStringLiteral("/%1 ").arg(matches[m_tabCycleIndex]));
+                    // Cycle: original partial → match[0] → match[1] → ...
+                    m_tabCycleIndex++;
+                    if (m_tabCycleIndex >= matches.size()) {
+                        // Back to original partial
+                        m_input->setText(QStringLiteral("/%1").arg(m_tabCycleBase));
+                        m_tabCycleIndex = -1;
+                    } else {
+                        m_input->setText(QStringLiteral("/%1 ").arg(matches[m_tabCycleIndex]));
+                    }
                 }
                 m_tabCompleting = false;
             }
