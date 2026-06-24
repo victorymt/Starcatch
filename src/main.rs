@@ -328,7 +328,7 @@ fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> rusqlite::Result<()> {
 
 #[cfg(feature = "gui")]
 fn launch_gui(db_path: String) -> rusqlite::Result<()> {
-    use eframe::egui::ViewportBuilder;
+    use eframe::egui::{self, ViewportBuilder, FontData, FontDefinitions, FontFamily};
     let native_options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
             .with_inner_size([420.0, 520.0])
@@ -340,7 +340,25 @@ fn launch_gui(db_path: String) -> rusqlite::Result<()> {
     eframe::run_native(
         "Starcatch 星捕",
         native_options,
-        Box::new(|_cc| Ok(Box::new(gui::GuiApp::new(db_path)))),
+        Box::new(|cc| {
+            // Load CJK font for Chinese text support
+            let mut fonts = FontDefinitions::default();
+            if let Ok(cjk_data) = std::fs::read("/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc") {
+                fonts.font_data.insert(
+                    "noto-cjk".to_owned(),
+                    std::sync::Arc::new(FontData::from_owned(cjk_data)),
+                );
+                // Prepend CJK font to proportional and monospace
+                if let Some(proportional) = fonts.families.get_mut(&FontFamily::Proportional) {
+                    proportional.insert(0, "noto-cjk".to_owned());
+                }
+                if let Some(monospace) = fonts.families.get_mut(&FontFamily::Monospace) {
+                    monospace.insert(0, "noto-cjk".to_owned());
+                }
+            }
+            cc.egui_ctx.set_fonts(fonts);
+            Ok(Box::new(gui::GuiApp::new(db_path)))
+        }),
     )
     .map_err(|e| rusqlite::Error::InvalidParameterName(format!("GUI error: {}", e)))?;
 
