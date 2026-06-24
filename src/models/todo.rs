@@ -43,6 +43,16 @@ impl Priority {
             Priority::P3 => "⚪",
         }
     }
+
+    /// Sort order: P0 (most urgent) = 0, P3 (lowest) = 3
+    pub fn order(&self) -> i32 {
+        match self {
+            Priority::P0 => 0,
+            Priority::P1 => 1,
+            Priority::P2 => 2,
+            Priority::P3 => 3,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

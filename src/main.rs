@@ -71,124 +71,126 @@ fn handle_todo(cmd: &TodoCommands, db_path: Option<&str>) -> rusqlite::Result<()
     let conn = open_db(db_path)?;
 
     match cmd {
-        TodoCommands::Add(args) => {
-            let priority = match args.priority.to_uppercase().as_str() {
-                "P0" => Priority::P0,
-                "P1" => Priority::P1,
-                "P3" => Priority::P3,
-                _ => Priority::P2,
-            };
-            let icon = priority.icon();
-
-            let todo = Todo {
-                id: uuid::Uuid::new_v4().to_string(),
-                title: args.title.clone(),
-                description: args.desc.clone(),
-                priority,
-                status: TodoStatus::Pending,
-                due_date: args.due.clone(),
-                tags: parse_tags(args.tag.as_deref()),
-                project: args.project.clone(),
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
-            };
-
-            db::insert_todo(&conn, &todo)?;
-            println!("✅ Todo added: {} {}", icon, todo.title);
-        }
-
-        TodoCommands::List(args) => {
-            // Determine which statuses to show
-            let show_statuses: Vec<&str> = if args.all {
-                vec!["pending", "done", "archived"]
-            } else if args.archived {
-                vec!["archived"]
-            } else if args.done {
-                vec!["done"]
-            } else if args.pending {
-                vec!["pending"]
-            } else {
-                // default: pending + done (hide archived)
-                vec!["pending", "done"]
-            };
-
-            let mut todos = Vec::new();
-            for s in &show_statuses {
-                if let Ok(mut t) = db::list_todos(&conn, Some(s)) {
-                    todos.append(&mut t);
-                }
-            }
-
-            // Show P0→P3 order (db already sorts by priority within each status batch)
-            // Re-sort globally by priority
-            let priority_order = |p: &Priority| -> i32 {
-                match p {
-                    Priority::P0 => 0,
-                    Priority::P1 => 1,
-                    Priority::P2 => 2,
-                    Priority::P3 => 3,
-                }
-            };
-            todos.sort_by_key(|t| (priority_order(&t.priority), std::cmp::Reverse(t.created_at)));
-
-            let filtered: Vec<&Todo> = if let Some(tag) = &args.tag {
-                todos.iter().filter(|t| t.tags.iter().any(|t2| t2 == tag)).collect()
-            } else {
-                todos.iter().collect()
-            };
-
-            if filtered.is_empty() {
-                println!("📋 No todos found.");
-            } else {
-                // Show section headers
-                println!("📋 Todos:");
-
-                let mut current_section = "";
-                for todo in &filtered {
-                    let section = match todo.status {
-                        TodoStatus::Pending => "📋 待办",
-                        TodoStatus::Done => "✅ 已完成",
-                        TodoStatus::Archived => "📦 已归档",
-                    };
-                    if section != current_section {
-                        println!("  {}:", section);
-                        current_section = section;
-                    }
-
-                    let due = todo.due_date.as_deref().unwrap_or("-");
-                    let tags = todo.tags.join(", ");
-                    let tag_str = if tags.is_empty() { "".to_string() } else { format!(" [{}]", tags) };
-                    let status_icon = match todo.status {
-                        TodoStatus::Pending => "⬜",
-                        TodoStatus::Done => "✅",
-                        TodoStatus::Archived => "📦",
-                    };
-                    println!(
-                        "  {} {} {}{} | due: {}",
-                        todo.priority.icon(),
-                        status_icon,
-                        todo.title,
-                        tag_str,
-                        due,
-                    );
-
-                    // Only show status on archived (for clarity)
-                }
-            }
-        }
-
+        TodoCommands::Add(args) => handle_todo_add(args, &conn),
+        TodoCommands::List(args) => handle_todo_list(args, &conn),
         TodoCommands::Done { id } => {
             db::update_todo_status(&conn, id, &TodoStatus::Done)?;
             println!("✅ Todo marked as done: {}", id);
+            Ok(())
         }
-
         TodoCommands::Archive { id } => {
             db::update_todo_status(&conn, id, &TodoStatus::Archived)?;
             println!("📦 Todo archived: {}", id);
+            Ok(())
         }
     }
+}
 
+fn handle_todo_add(args: &TodoAddArgs, conn: &rusqlite::Connection) -> rusqlite::Result<()> {
+    let priority = match args.priority.to_uppercase().as_str() {
+        "P0" => Priority::P0,
+        "P1" => Priority::P1,
+        "P3" => Priority::P3,
+        _ => Priority::P2,
+    };
+    let icon = priority.icon();
+
+    let todo = Todo {
+        id: uuid::Uuid::new_v4().to_string(),
+        title: args.title.clone(),
+        description: args.desc.clone(),
+        priority,
+        status: TodoStatus::Pending,
+        due_date: args.due.clone(),
+        tags: parse_tags(args.tag.as_deref()),
+        project: args.project.clone(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+
+    db::insert_todo(conn, &todo)?;
+    println!("✅ Todo added: {} {}", icon, todo.title);
     Ok(())
+}
+
+fn handle_todo_list(args: &TodoListArgs, conn: &rusqlite::Connection) -> rusqlite::Result<()> {
+    let show_statuses = list_visible_statuses(args);
+    let mut todos = fetch_todos_by_statuses(conn, &show_statuses)?;
+    todos.sort_by_key(|t| (t.priority.order(), std::cmp::Reverse(t.created_at)));
+
+    let filtered: Vec<&Todo> = if let Some(tag) = &args.tag {
+        todos.iter().filter(|t| t.tags.iter().any(|t2| t2 == tag)).collect()
+    } else {
+        todos.iter().collect()
+    };
+
+    render_todo_list(&filtered);
+    Ok(())
+}
+
+fn list_visible_statuses(args: &TodoListArgs) -> Vec<&'static str> {
+    if args.all {
+        vec!["pending", "done", "archived"]
+    } else if args.archived {
+        vec!["archived"]
+    } else if args.done {
+        vec!["done"]
+    } else if args.pending {
+        vec!["pending"]
+    } else {
+        vec!["pending", "done"]
+    }
+}
+
+fn fetch_todos_by_statuses(
+    conn: &rusqlite::Connection,
+    statuses: &[&str],
+) -> rusqlite::Result<Vec<Todo>> {
+    let mut todos = Vec::new();
+    for s in statuses {
+        if let Ok(mut batch) = db::list_todos(conn, Some(s)) {
+            todos.append(&mut batch);
+        }
+    }
+    Ok(todos)
+}
+
+fn render_todo_list(todos: &[&Todo]) {
+    if todos.is_empty() {
+        println!("📋 No todos found.");
+        return;
+    }
+
+    println!("📋 Todos:");
+    let mut current_section = "";
+    for todo in todos {
+        let section = match todo.status {
+            TodoStatus::Pending => "📋 待办",
+            TodoStatus::Done => "✅ 已完成",
+            TodoStatus::Archived => "📦 已归档",
+        };
+        if section != current_section {
+            println!("  {}:", section);
+            current_section = section;
+        }
+
+        let due = todo.due_date.as_deref().unwrap_or("-");
+        let tags = todo.tags.join(", ");
+        let tag_str = if tags.is_empty() { "".to_string() } else { format!(" [{}]", tags) };
+        let status_icon = match todo.status {
+            TodoStatus::Pending => "⬜",
+            TodoStatus::Done => "✅",
+            TodoStatus::Archived => "📦",
+        };
+        println!(
+            "  {} {} {}{} | due: {}",
+            todo.priority.icon(),
+            status_icon,
+            todo.title,
+            tag_str,
+            due,
+        );
+    }
 }
 
 // ─── Idea ───
