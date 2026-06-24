@@ -42,17 +42,12 @@ enum TodoFilter {
     All,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Default, Clone, Copy, PartialEq)]
 enum QuickKind {
+    #[default]
     Todo,
     Idea,
     Log,
-}
-
-impl Default for QuickKind {
-    fn default() -> Self {
-        Self::Todo
-    }
 }
 
 // ──────────────────────────────────────────────
@@ -180,14 +175,15 @@ impl GuiApp {
 
         self.with_db(|conn| match self.quick_kind {
             QuickKind::Todo => {
+                let (title, priority, due_date, tags) = parse_todo_input(&text);
                 let todo = Todo {
                     id: uuid::Uuid::new_v4().to_string(),
-                    title: text.clone(),
+                    title,
                     description: None,
-                    priority: Priority::P2,
+                    priority,
                     status: TodoStatus::Pending,
-                    due_date: None,
-                    tags: vec![],
+                    due_date,
+                    tags,
                     project: None,
                     created_at: chrono::Utc::now(),
                     updated_at: chrono::Utc::now(),
@@ -252,6 +248,77 @@ impl GuiApp {
         });
         self.needs_refresh = true;
     }
+}
+
+// ──────────────────────────────────────────────
+//  Quick Input Parser
+// ──────────────────────────────────────────────
+
+/// Parse a quick-input string into (title, priority, due_date, tags).
+///
+/// Recognised tokens:
+///   `P0` | `P1` | `P2` | `P3`  → priority override
+///   `due:YYYY-MM-DD`            → due date
+///   `#tag`                      → tag (strips trailing punctuation)
+///
+/// Everything else is joined back into the title.
+fn parse_todo_input(raw: &str) -> (String, Priority, Option<String>, Vec<String>) {
+    let mut priority = Priority::P2;
+    let mut due_date: Option<String> = None;
+    let mut tags: Vec<String> = Vec::new();
+    let mut title_parts: Vec<String> = Vec::new();
+
+    let tokens: Vec<&str> = raw.split_whitespace().collect();
+    let mut i = 0;
+
+    while i < tokens.len() {
+        let token = tokens[i];
+
+        // Priority keyword
+        if token == "P0" {
+            priority = Priority::P0;
+        } else if token == "P1" {
+            priority = Priority::P1;
+        } else if token == "P3" {
+            priority = Priority::P3;
+        } else if token == "P2" {
+            priority = Priority::P2;
+        }
+        // due: prefix — value may be in the same token or the next
+        else if let Some(due_val) = token.strip_prefix("due:") {
+            let val = due_val.trim();
+            if !val.is_empty() {
+                due_date = Some(val.to_string());
+            } else if i + 1 < tokens.len() {
+                i += 1;
+                due_date = Some(tokens[i].to_string());
+            }
+        }
+        // #tag
+        else if let Some(tag) = token.strip_prefix('#') {
+            let cleaned: String = tag
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                .collect();
+            if !cleaned.is_empty() {
+                tags.push(cleaned);
+            }
+        }
+        // plain title word
+        else {
+            title_parts.push(token.to_string());
+        }
+
+        i += 1;
+    }
+
+    let title = if title_parts.is_empty() {
+        raw.to_string()
+    } else {
+        title_parts.join(" ")
+    };
+
+    (title, priority, due_date, tags)
 }
 
 // ──────────────────────────────────────────────
@@ -447,10 +514,8 @@ impl GuiApp {
                                     }
 
                                     // Archive button (only for non-archived)
-                                    if !is_archived {
-                                        if ui.button("📦").clicked() {
-                                            to_archive = Some(id.clone());
-                                        }
+                                    if !is_archived && ui.button("📦").clicked() {
+                                        to_archive = Some(id.clone());
                                     }
 
                                     // Due date
