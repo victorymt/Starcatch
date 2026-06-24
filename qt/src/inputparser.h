@@ -19,3 +19,7 @@ ParsedInput parseTodoInput(const QString& raw);
 
 /// Strip trailing ASCII and CJK punctuation from a string.
 QString trimTrailingPunct(const QString& s);
+
+/// Try to parse a natural-language date string ("明天", "下周五", "3天后", etc.)
+/// Returns "yyyy-MM-dd" on success, empty string on failure.
+QString parseNaturalDate(const QString& text);
