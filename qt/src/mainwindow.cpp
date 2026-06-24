@@ -8,6 +8,8 @@
 #include "inputparser.h"
 #include "command_plugin.h"
 #include "commands/help_command.h"
+#include "commands/theme_command.h"
+#include "theme.h"
 
 #include <QVBoxLayout>
 #include <QDir>
@@ -77,14 +79,16 @@ void MainWindow::setupUi() {
 void MainWindow::setupShortcuts() {
     auto* escShortcut = new QShortcut(Qt::Key_Escape, this);
     connect(escShortcut, &QShortcut::activated, this, &QWidget::close);
+
+    auto* themeShortcut = new QShortcut(Qt::CTRL | Qt::SHIFT | Qt::Key_T, this);
+    connect(themeShortcut, &QShortcut::activated, this, []() {
+        ThemeManager::instance().toggle();
+    });
 }
 
 void MainWindow::registerCommands() {
     registerCommand<HelpCommand>();
-    // Future commands — one line each:
-    // registerCommand<SearchCommand>();
-    // registerCommand<StatsCommand>();
-    // registerCommand<ExportCommand>();
+    registerCommand<ThemeCommand>();
 }
 
 QString MainWindow::determineDbPath() {

@@ -13,6 +13,7 @@ set(SOURCES
     src/command_plugin.cpp
     src/inputparser.cpp
     src/mainwindow.cpp
+    src/theme.cpp
     src/todopanel.cpp
     src/ideapanel.cpp
     src/logpanel.cpp
@@ -31,7 +32,9 @@ set(HEADERS
     src/logpanel.h
     src/quickinputbar.h
     src/toastwidget.h
+    src/theme.h
     src/commands/help_command.h
+    src/commands/theme_command.h
 )
 
 add_executable(starcatch-qt ${SOURCES} ${HEADERS})
