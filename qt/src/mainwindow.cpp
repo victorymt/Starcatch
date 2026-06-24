@@ -12,6 +12,7 @@
 #include "commands/theme_command.h"
 #include "commands/search_command.h"
 #include "commands/export_command.h"
+#include "commands/test_delete_command.h"
 #include "theme.h"
 
 #include <QVBoxLayout>
@@ -114,6 +115,7 @@ void MainWindow::registerCommands() {
     registerCommand<ThemeCommand>();
     registerCommand<SearchCommand>();
     registerCommand<ExportCommand>();
+    registerCommand<TestDeleteAllCommand>();
 }
 
 QString MainWindow::determineDbPath() {
