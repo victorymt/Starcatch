@@ -230,8 +230,8 @@ void AllPanel::rebuildList(const QString& searchFilter) {
         // Section header
         auto* header = new QLabel(title, m_listWidget);
         header->setStyleSheet(QStringLiteral(
-            "color: #64b5f6; font-weight: bold; font-size: 12px;"
-            "padding: 8px 6px 2px 6px; background: transparent;"));
+            "color: #fff; background: #2a2a5a; font-weight: bold; font-size: 13px;"
+            "padding: 6px 12px; border-radius: 6px; margin: 4px 4px 0px 4px;"));
         m_listLayout->addWidget(header);
 
         for (const auto& e : group) {
