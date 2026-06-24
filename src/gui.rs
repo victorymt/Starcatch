@@ -284,8 +284,10 @@ fn parse_todo_input(raw: &str) -> (String, Priority, Option<String>, Vec<String>
         } else if token == "P2" {
             priority = Priority::P2;
         }
-        // due: prefix — value may be in the same token or the next
-        else if let Some(due_val) = token.strip_prefix("due:") {
+        // due: / due： prefix — value may be in the same token or the next
+        else if let Some(due_val) = token.strip_prefix("due:")
+            .or_else(|| token.strip_prefix("due："))
+        {
             let val = due_val.trim();
             if !val.is_empty() {
                 due_date = Some(val.to_string());
@@ -294,14 +296,11 @@ fn parse_todo_input(raw: &str) -> (String, Priority, Option<String>, Vec<String>
                 due_date = Some(tokens[i].to_string());
             }
         }
-        // #tag
+        // #tag — strip leading # then trim trailing punctuation
         else if let Some(tag) = token.strip_prefix('#') {
-            let cleaned: String = tag
-                .chars()
-                .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
-                .collect();
+            let cleaned = trim_trailing_punct(tag.trim());
             if !cleaned.is_empty() {
-                tags.push(cleaned);
+                tags.push(cleaned.to_string());
             }
         }
         // plain title word
@@ -319,6 +318,14 @@ fn parse_todo_input(raw: &str) -> (String, Priority, Option<String>, Vec<String>
     };
 
     (title, priority, due_date, tags)
+}
+
+/// Strip trailing ASCII and CJK punctuation from a tag.
+fn trim_trailing_punct(s: &str) -> &str {
+    s.trim_end_matches(|c: char| {
+        c.is_ascii_punctuation()
+            || matches!(c, '，' | '。' | '；' | '：' | '！' | '？' | '、' | '）' | '】' | '》')
+    })
 }
 
 // ──────────────────────────────────────────────
