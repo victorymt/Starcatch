@@ -5,41 +5,62 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Run Commands
 
 ```bash
-# CLI-only build (default, no GUI dependency)
+# Rust CLI build
 cargo build
-
-# With GUI (Wayland via egui/eframe)
-cargo build --features gui
-cargo run --features gui
-
-# Release build (opt-level=2, LTO, stripped)
-cargo build --release --features gui
+cargo run
 
 # Run tests (uses dev-dependency: tempfile)
 cargo test
 
 # Lint
 cargo clippy
-cargo clippy --features gui
 
-# Install to ~/.cargo/bin/
-cargo install --path . --features gui
+# Install CLI to ~/.cargo/bin/
+cargo install --path .
 ```
 
-**Important:** The default feature set is empty — `cargo build` without `--features gui` produces a CLI-only binary. Always pass `--features gui` when working on or testing GUI code.
+### Qt GUI (C++)
+
+```bash
+cd qt
+cmake -B build
+cmake --build build
+./build/starcatch-qt
+```
+
+**Important:** The Rust binary is CLI-only. The GUI is a separate C++ Qt 6 project in `qt/`. Both share the same SQLite database at `~/.local/share/starcatch/starcatch.db`.
 
 ## Architecture
 
-Starcatch is a Wayland-native idea/todo/log capture tool. Rust 2024 edition, single crate, ~650 lines of source.
+Starcatch is a Wayland-native idea/todo/log capture tool. The CLI is written in Rust (~1,200 lines), and the GUI is a separate C++ Qt 6 application (~900 lines in `qt/`). Both share the same SQLite database.
 
-### Feature Gating
+### Project Layout
 
-| Feature | Crate | Purpose |
-|---------|-------|---------|
-| _(default)_ | `clap`, `rusqlite`, `serde`, `chrono`, `uuid` | CLI + database |
-| `gui` | `eframe` (Wayland) | Floating panel GUI |
+```
+src/                # Rust CLI
+├── main.rs         # Entry point + CLI handlers
+├── cli.rs          # clap argument definitions
+├── db.rs           # SQLite via rusqlite (WAL, migrations, CRUD)
+└── models/         # Todo, Idea, Log structs + enums
 
-`src/gui.rs` is **entirely** `#[cfg(feature = "gui")]` gated — the module is conditionally compiled, and `main.rs` uses `#[cfg]` blocks at the call site to branch between GUI launch and a help message.
+qt/                 # C++ Qt 6 GUI
+├── CMakeLists.txt
+└── src/
+    ├── main.cpp          # QApplication entry point
+    ├── models.h          # C++ mirrors of Rust models
+    ├── database.h/.cpp   # SQLite via QSqlDatabase
+    ├── inputparser.h/.cpp # Quick input parsing (P0-P3, due:, #tags)
+    ├── mainwindow.h/.cpp  # Top-level window + layout
+    ├── todopanel.h/.cpp   # Todo tab (filters, checkboxes, actions)
+    ├── ideapanel.h/.cpp   # Idea tab (days slider, list)
+    ├── logpanel.h/.cpp    # Log tab (days slider, mood icons)
+    ├── quickinputbar.h/.cpp # Bottom input bar
+    └── toastwidget.h/.cpp  # Toast overlay notifications
+```
+
+### No Feature Gating (since Qt migration)
+
+The GUI was migrated from egui to C++ Qt 6 for superior CJK text support. The Rust crate is now CLI-only — no feature flags needed. The Qt GUI is a completely separate project that directly accesses the same SQLite database via Qt's QSqlDatabase.
 
 ### Entry Point & Dispatch (`src/main.rs`)
 
@@ -51,7 +72,7 @@ Args::parse() → match args.command
   ├── IdeaCommands  → handle_idea()
   ├── LogCommands   → handle_log()
   ├── PipeArgs      → handle_pipe()     (reads stdin)
-  └── None          → launch_gui() or print help
+  └── None          → print help message
 ```
 
 Database path: `~/.local/share/starcatch/starcatch.db` (created on first use). Override with `-D <path>`.
@@ -78,16 +99,18 @@ Query pattern: `list_*` functions take an optional filter parameter, build the S
 
 Reads entire stdin to a string, then creates the appropriate entity with defaults (P2 priority for todos, no tags/mood) and inserts into the database. Route by the required positional `type` argument: `todo`, `idea`, or `log`.
 
-### GUI (`src/gui.rs`) — feature-gated
+### GUI (`qt/`) — C++ Qt 6
 
-egui/eframe app with a three-tab floating panel (Todo/Idea/Log). Key patterns:
+Qt 6 application with a three-tab floating panel (Todo/Idea/Log). Key patterns:
 
-- **Quick input bar** at the bottom — type text, select kind (Todo/Idea/Log), press Enter or click `➕` to capture
-- **Enter key capture** is handled at the **top level** of `update()` (not inside any panel) for IME compatibility
-- **Escape** closes the window via `ViewportCommand::Close`
-- **Data refresh** uses a `needs_refresh` flag — set after mutations, checked at top of frame
-- **Toast notifications** display for 2.5 seconds after actions
-- **CJK font**: loads `/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc` at startup, prepends to Proportional and Monospace font families
+- **Quick input bar** at the bottom — type text, select kind (Todo/Idea/Log via QComboBox), press Enter or click `➕` to capture
+- **Enter key capture** works natively — `QLineEdit::returnPressed()` only fires after IME composition is committed (no manual IME gating needed, unlike egui)
+- **Escape** closes the window via QShortcut
+- **Data refresh** happens inline after every mutation (insert/update/delete → refresh panel immediately)
+- **Toast notifications** display for 2.5 seconds via QTimer::singleShot
+- **CJK text**: Qt uses HarfBuzz + fontconfig natively — no special font loading needed
+- **Database**: Uses Qt's QSqlDatabase with QSQLITE driver, same schema as the Rust CLI
+- **Tags**: Stored as JSON arrays in TEXT columns, identical format to Rust's serde_json output
 
 ### Release Profile
 

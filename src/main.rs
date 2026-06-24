@@ -2,9 +2,6 @@ mod cli;
 mod db;
 mod models;
 
-#[cfg(feature = "gui")]
-mod gui;
-
 use std::io::Read;
 
 use chrono::Utc;
@@ -43,19 +40,10 @@ fn main() {
         Some(Commands::Log(cmd)) => handle_log(cmd, args.db.as_deref()),
         Some(Commands::Pipe(cmd)) => handle_pipe(cmd, args.db.as_deref()),
         None => {
-            // No subcommand → launch GUI
-            #[cfg(feature = "gui")]
-            {
-                let db_path = args.db.unwrap_or_else(default_db_path);
-                launch_gui(db_path)
-            }
-            #[cfg(not(feature = "gui"))]
-            {
-                eprintln!("🌙 Starcatch 星捕 — No command given.");
-                eprintln!("   Run `starcatch --help` to see available commands.");
-                eprintln!("   Or compile with --features gui for the GUI mode.");
-                Ok(())
-            }
+            eprintln!("🌙 Starcatch 星捕 — No command given.");
+            eprintln!("   Run `starcatch --help` to see available commands.");
+            eprintln!("   Or use `starcatch-qt` (in the qt/ directory) for the GUI.");
+            Ok(())
         }
     };
 
@@ -324,45 +312,6 @@ fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> rusqlite::Result<()> {
             eprintln!("⚠️  Unknown pipe type: {}. Use: todo, idea, log", other);
         }
     }
-
-    Ok(())
-}
-
-#[cfg(feature = "gui")]
-fn launch_gui(db_path: String) -> rusqlite::Result<()> {
-    use eframe::egui::{ViewportBuilder, FontData, FontDefinitions, FontFamily};
-    let native_options = eframe::NativeOptions {
-        viewport: ViewportBuilder::default()
-            .with_inner_size([420.0, 520.0])
-            .with_title("⭐ Starcatch 星捕")
-            .with_resizable(true),
-        ..Default::default()
-    };
-
-    eframe::run_native(
-        "Starcatch 星捕",
-        native_options,
-        Box::new(|cc| {
-            // Load CJK font for Chinese text support
-            let mut fonts = FontDefinitions::default();
-            if let Ok(cjk_data) = std::fs::read("/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc") {
-                fonts.font_data.insert(
-                    "noto-cjk".to_owned(),
-                    std::sync::Arc::new(FontData::from_owned(cjk_data)),
-                );
-                // Prepend CJK font to proportional and monospace
-                if let Some(proportional) = fonts.families.get_mut(&FontFamily::Proportional) {
-                    proportional.insert(0, "noto-cjk".to_owned());
-                }
-                if let Some(monospace) = fonts.families.get_mut(&FontFamily::Monospace) {
-                    monospace.insert(0, "noto-cjk".to_owned());
-                }
-            }
-            cc.egui_ctx.set_fonts(fonts);
-            Ok(Box::new(gui::GuiApp::new(db_path)))
-        }),
-    )
-    .map_err(|e| rusqlite::Error::InvalidParameterName(format!("GUI error: {}", e)))?;
 
     Ok(())
 }
