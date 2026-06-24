@@ -135,6 +135,13 @@ void AllPanel::rebuildList(const QString& searchFilter) {
 
     QVector<MixedEntry> entries;
 
+    auto tagsToSub = [](const QStringList& tags) -> QString {
+        if (tags.isEmpty()) return {};
+        QStringList prefixed;
+        for (const auto& t : tags) prefixed << QStringLiteral("#%1").arg(t);
+        return prefixed.join(QStringLiteral(" "));
+    };
+
     // Todos (active: pending + done)
     auto todos = m_db->listTodosByStatuses(
         {QStringLiteral("pending"), QStringLiteral("done"), QStringLiteral("archived")});
@@ -147,7 +154,7 @@ void AllPanel::rebuildList(const QString& searchFilter) {
                  priorityToString(t.priority) == QStringLiteral("P3") ? QStringLiteral("⚪") :
                  QStringLiteral("📋");
         e.text = t.title;
-        e.sub = t.tags.isEmpty() ? QString() : t.tags.join(QStringLiteral(", "));
+        e.sub = tagsToSub(t.tags);
         e.createdAt = t.createdAt;
         e.isDone = t.status == TodoStatus::Done;
         e.isArchived = t.status == TodoStatus::Archived;
@@ -162,7 +169,10 @@ void AllPanel::rebuildList(const QString& searchFilter) {
         e.id = i.id;
         e.icon = QStringLiteral("💡");
         e.text = i.title;
-        e.sub = i.tags.isEmpty() ? i.source : i.tags.join(QStringLiteral(", "));
+        QStringList parts;
+        if (!i.source.isEmpty()) parts << i.source;
+        parts << tagsToSub(i.tags);
+        e.sub = parts.join(QStringLiteral(" "));
         e.createdAt = i.createdAt;
         entries.append(e);
     }
@@ -175,7 +185,7 @@ void AllPanel::rebuildList(const QString& searchFilter) {
         e.id = l.id;
         e.icon = LogPanel::moodIcon(l.mood).isEmpty() ? QStringLiteral("📝") : LogPanel::moodIcon(l.mood);
         e.text = l.content;
-        e.sub = l.tags.join(QStringLiteral(", "));
+        e.sub = tagsToSub(l.tags);
         e.createdAt = l.createdAt;
         entries.append(e);
     }
