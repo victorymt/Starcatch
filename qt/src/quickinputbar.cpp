@@ -2,7 +2,6 @@
 #include "command_plugin.h"
 #include <QHBoxLayout>
 #include <QKeyEvent>
-#include <algorithm>
 
 QuickInputBar::QuickInputBar(QWidget* parent)
     : QWidget(parent)
@@ -59,6 +58,9 @@ QuickInputBar::QuickInputBar(QWidget* parent)
         }
 
         m_submitBtn->setEnabled(!m_input->text().trimmed().isEmpty());
+
+        // Reset tab cycle when text changes (user typed something new)
+        m_tabCycleIndex = -1;
     });
 
     // Enter → submit
@@ -183,33 +185,31 @@ bool QuickInputBar::eventFilter(QObject* obj, QEvent* ev) {
         auto* ke = static_cast<QKeyEvent*>(ev);
         if (ke->key() == Qt::Key_Tab) {
             QString text = m_input->text();
-            // Only complete if text starts with / and cursor is at end
             if (text.startsWith(QChar('/')) && m_input->cursorPosition() == text.length()) {
                 int spaceIdx = text.indexOf(QChar(' '));
                 QString partial = (spaceIdx > 0) ? text.left(spaceIdx).mid(1) : text.mid(1);
-                if (!partial.isEmpty()) {
-                    // Find matching commands
-                    QStringList matches;
-                    for (auto* p : CommandRegistry::instance().all()) {
-                        if (p->name().startsWith(partial))
-                            matches << p->name();
-                    }
-                    if (matches.size() == 1) {
-                        // Exact match — complete it
-                        m_input->setText(QStringLiteral("/%1 ").arg(matches.first()));
-                        return true;
-                    } else if (matches.size() > 1) {
-                        // Multiple matches — complete to common prefix
-                        QString common = matches.first();
-                        for (const auto& m : matches)
-                            common = common.left(std::min(common.length(), m.length()));
-                        // Truncate common to shared prefix
-                        while (common.length() > partial.length() && !std::all_of(matches.begin(), matches.end(),
-                            [&](const QString& m) { return m.startsWith(common); }))
-                            common.chop(1);
 
-                        m_input->setText(QStringLiteral("/%1").arg(common));
+                // Gather matches
+                QStringList matches;
+                for (auto* p : CommandRegistry::instance().all()) {
+                    if (p->name().startsWith(partial))
+                        matches << p->name();
+                }
+
+                if (matches.isEmpty()) return true;
+
+                if (matches.size() == 1) {
+                    m_input->setText(QStringLiteral("/%1 ").arg(matches.first()));
+                    m_tabCycleIndex = -1;
+                } else {
+                    // Cycle through matches on repeated Tab presses
+                    if (partial != m_tabCycleBase) {
+                        m_tabCycleBase = partial;
+                        m_tabCycleIndex = 0;
+                    } else {
+                        m_tabCycleIndex = (m_tabCycleIndex + 1) % matches.size();
                     }
+                    m_input->setText(QStringLiteral("/%1 ").arg(matches[m_tabCycleIndex]));
                 }
             }
             return true;
