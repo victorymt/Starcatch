@@ -43,6 +43,7 @@ private:
     QLineEdit*   m_input;
     QPushButton* m_submitBtn;
     bool         m_handlingPrefix = false;
+    bool         m_tabCompleting = false;
     QString      m_tabCycleBase;
     int          m_tabCycleIndex = -1;
 };

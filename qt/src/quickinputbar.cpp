@@ -59,8 +59,9 @@ QuickInputBar::QuickInputBar(QWidget* parent)
 
         m_submitBtn->setEnabled(!m_input->text().trimmed().isEmpty());
 
-        // Reset tab cycle when text changes (user typed something new)
-        m_tabCycleIndex = -1;
+        // Reset tab cycle when user types (not during tab completion)
+        if (!m_tabCompleting)
+            m_tabCycleIndex = -1;
     });
 
     // Enter → submit
@@ -198,11 +199,11 @@ bool QuickInputBar::eventFilter(QObject* obj, QEvent* ev) {
 
                 if (matches.isEmpty()) return true;
 
+                m_tabCompleting = true;
                 if (matches.size() == 1) {
                     m_input->setText(QStringLiteral("/%1 ").arg(matches.first()));
                     m_tabCycleIndex = -1;
                 } else {
-                    // Cycle through matches on repeated Tab presses
                     if (partial != m_tabCycleBase) {
                         m_tabCycleBase = partial;
                         m_tabCycleIndex = 0;
@@ -211,6 +212,7 @@ bool QuickInputBar::eventFilter(QObject* obj, QEvent* ev) {
                     }
                     m_input->setText(QStringLiteral("/%1 ").arg(matches[m_tabCycleIndex]));
                 }
+                m_tabCompleting = false;
             }
             return true;
         }
