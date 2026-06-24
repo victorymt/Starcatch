@@ -40,8 +40,11 @@ QuickInputBar::QuickInputBar(QWidget* parent)
         if (m_handlingPrefix) return;
 
         ParsedCommand cmd = parseCommand(text);
-        if (cmd.isCommand && cmd.isKindSwitch) {
-            // /t /i /l → switch kind + strip prefix
+        // Only instant-switch when there's a space after the prefix
+        // (/t something). Bare /t /i /l are handled on Enter to avoid
+        // conflicting with longer commands like /theme.
+        bool hasSpace = text.contains(QChar(' '));
+        if (cmd.isCommand && cmd.isKindSwitch && hasSpace) {
             m_handlingPrefix = true;
             switch (cmd.targetKind) {
                 case QuickKind::Todo: m_kindCombo->setCurrentIndex(0); break;
@@ -52,7 +55,6 @@ QuickInputBar::QuickInputBar(QWidget* parent)
             m_handlingPrefix = false;
         }
 
-        // Submit button enabled only when there's non-whitespace content
         m_submitBtn->setEnabled(!m_input->text().trimmed().isEmpty());
     });
 
