@@ -5,6 +5,10 @@ edition = "2024"
 description = "Catch your starlight ideas — a Wayland-native capture tool"
 authors = ["溯星 (Sù Xīng) & 星渺 (Xīng Miǎo)"]
 
+[features]
+default = []
+gui = ["eframe"]
+
 [dependencies]
 # CLI
 clap = { version = "4", features = ["derive"] }
@@ -21,6 +25,9 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # UUID
 uuid = { version = "1", features = ["v4"] }
+
+# GUI
+eframe = { version = "0.31", features = ["wayland"], optional = true }
 
 # Pipe mode - reading stdin
 # (built-in, no extra dep needed)

@@ -2,6 +2,9 @@ mod cli;
 mod db;
 mod models;
 
+#[cfg(feature = "gui")]
+mod gui;
+
 use std::io::Read;
 
 use chrono::Utc;
@@ -40,11 +43,19 @@ fn main() {
         Some(Commands::Log(cmd)) => handle_log(cmd, args.db.as_deref()),
         Some(Commands::Pipe(cmd)) => handle_pipe(cmd, args.db.as_deref()),
         None => {
-            // No subcommand → launch GUI (future)
-            eprintln!("🌙 Starcatch 星捕 — No command given.");
-            eprintln!("   Run `starcatch --help` to see available commands.");
-            eprintln!("   Or launch GUI mode (coming soon!)");
-            Ok(())
+            // No subcommand → launch GUI
+            #[cfg(feature = "gui")]
+            {
+                let db_path = args.db.unwrap_or_else(default_db_path);
+                launch_gui(db_path)
+            }
+            #[cfg(not(feature = "gui"))]
+            {
+                eprintln!("🌙 Starcatch 星捕 — No command given.");
+                eprintln!("   Run `starcatch --help` to see available commands.");
+                eprintln!("   Or compile with --features gui for the GUI mode.");
+                Ok(())
+            }
         }
     };
 
@@ -311,6 +322,27 @@ fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> rusqlite::Result<()> {
             eprintln!("⚠️  Unknown pipe type: {}. Use: todo, idea, log", other);
         }
     }
+
+    Ok(())
+}
+
+#[cfg(feature = "gui")]
+fn launch_gui(db_path: String) -> rusqlite::Result<()> {
+    use eframe::egui::ViewportBuilder;
+    let native_options = eframe::NativeOptions {
+        viewport: ViewportBuilder::default()
+            .with_inner_size([420.0, 520.0])
+            .with_title("⭐ Starcatch 星捕")
+            .with_resizable(true),
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "Starcatch 星捕",
+        native_options,
+        Box::new(|_cc| Ok(Box::new(gui::GuiApp::new(db_path)))),
+    )
+    .map_err(|e| rusqlite::Error::InvalidParameterName(format!("GUI error: {}", e)))?;
 
     Ok(())
 }
