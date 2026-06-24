@@ -120,11 +120,22 @@ curl -s https://api.example.com/quote | starcatch pipe idea --source web
 grep "TODO" src/main.rs | starcatch pipe todo
 ```
 
-### 🪟 GUI 模式 — Wayland 原生窗口（规划中）
+### 🪟 GUI 模式 — Wayland 原生窗口
 - 无参数启动 → 浮动窗口
-- **全局热键 Super+I** → 快速弹窗输入
-- Todo 优先级彩色标记，拖拽排序
+- 顶部 Tab 切换 Todo / Idea / Log
+- 底部快速输入框，选择类型即可添加
+- Todo 优先级彩色标记，checkbox 勾选完成
 - Idea / Log 时间线视图
+- **中文字体支持**（自动加载 NotoSansCJK）
+
+```bash
+# 启动 GUI（需要 --features gui 编译）
+cargo run --features gui
+
+# 或安装后直接运行
+cargo install --path . --features gui
+starcatch
+```
 
 ---
 
