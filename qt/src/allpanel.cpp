@@ -213,18 +213,44 @@ void AllPanel::rebuildList(const QString& searchFilter) {
         return;
     }
 
-    for (const auto& e : entries) {
-        auto* w = new AllItemWidget(e, m_listWidget);
-        connect(w, &AllItemWidget::deleteClicked, this, [this](const MixedEntry& me) {
-            switch (me.kind) {
-                case MixedEntry::Todo: handleDeleteTodo(me.id); break;
-                case MixedEntry::Idea: handleDeleteIdea(me.id); break;
-                case MixedEntry::Log:  handleDeleteLog(me.id);  break;
-            }
-        });
-        connect(w, &AllItemWidget::todoToggled, this, &AllPanel::handleToggleTodo);
-        m_listLayout->addWidget(w);
-    }
+    // Group by kind and add section headers
+    auto addSection = [&](const QString& title, MixedEntry::Kind kind) {
+        QVector<MixedEntry> group;
+        for (const auto& e : entries) {
+            if (e.kind == kind) group.append(e);
+        }
+        if (group.isEmpty()) return;
+
+        // Sort group by created_at desc
+        std::sort(group.begin(), group.end(),
+                  [](const MixedEntry& a, const MixedEntry& b) {
+                      return a.createdAt > b.createdAt;
+                  });
+
+        // Section header
+        auto* header = new QLabel(title, m_listWidget);
+        header->setStyleSheet(QStringLiteral(
+            "color: #64b5f6; font-weight: bold; font-size: 12px;"
+            "padding: 8px 6px 2px 6px; background: transparent;"));
+        m_listLayout->addWidget(header);
+
+        for (const auto& e : group) {
+            auto* w = new AllItemWidget(e, m_listWidget);
+            connect(w, &AllItemWidget::deleteClicked, this, [this](const MixedEntry& me) {
+                switch (me.kind) {
+                    case MixedEntry::Todo: handleDeleteTodo(me.id); break;
+                    case MixedEntry::Idea: handleDeleteIdea(me.id); break;
+                    case MixedEntry::Log:  handleDeleteLog(me.id);  break;
+                }
+            });
+            connect(w, &AllItemWidget::todoToggled, this, &AllPanel::handleToggleTodo);
+            m_listLayout->addWidget(w);
+        }
+    };
+
+    addSection(QStringLiteral("📋 Todo"), MixedEntry::Todo);
+    addSection(QStringLiteral("💭 Idea"), MixedEntry::Idea);
+    addSection(QStringLiteral("📓 Log"), MixedEntry::Log);
 
     m_listLayout->addStretch();
 }
