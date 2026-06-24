@@ -34,7 +34,9 @@ MainWindow::MainWindow(QWidget* parent)
     setupShortcuts();
     registerCommands();
 
-    // Initial load
+    // Initial load — refresh All and set default tab to Todo
+    m_allPanel->refresh();
+    m_tabWidget->setCurrentIndex(1); // Start on Todo
     m_todoPanel->refresh();
     m_quickInputBar->focusInput();
 }
