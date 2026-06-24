@@ -230,7 +230,7 @@ void AllPanel::rebuildList(const QString& searchFilter) {
         // Section header — subtle separator
         auto* header = new QLabel(title, m_listWidget);
         header->setStyleSheet(QStringLiteral(
-            "color: #90caf9; font-weight: bold; font-size: 12px;"
+            "color: #90caf9; font-weight: bold; font-size: 14px;"
             "padding: 4px 8px; background: transparent;"
             "border-bottom: 1px solid #2a2a4a; margin: 4px 8px 0px 8px;"));
         m_listLayout->addWidget(header);
