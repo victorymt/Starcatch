@@ -56,6 +56,99 @@ fn main() {
     }
 }
 
+// ─── Pipe input parser ───
+
+fn is_trailing_punct(c: char) -> bool {
+    c.is_ascii_punctuation()
+        || c == '\u{3001}' // 、
+        || c == '\u{3002}' // 。
+        || c == '\u{FF0C}' // ，
+        || c == '\u{FF1B}' // ；
+        || c == '\u{FF1A}' // ：
+        || c == '\u{FF01}' // ！
+        || c == '\u{FF1F}' // ？
+        || c == '\u{FF09}' // ）
+        || c == '\u{FF3D}' // 】
+        || c == '\u{300D}' // 》
+}
+
+fn trim_trailing_punct(s: &str) -> &str {
+    let mut end = s.len();
+    for (byte_offset, c) in s.char_indices().rev() {
+        if is_trailing_punct(c) {
+            end = byte_offset;
+        } else {
+            break;
+        }
+    }
+    &s[..end]
+}
+
+struct ParsedPipeTodo {
+    title: String,
+    priority: Priority,
+    due_date: Option<String>,
+    tags: Vec<String>,
+}
+
+/// Parse a quick-input string for pipe mode, mirroring the GUI's parseTodoInput().
+/// Extracts P0-P3 priority, due:/due： dates, #tags — the rest becomes the title.
+fn parse_pipe_todo(raw: &str) -> ParsedPipeTodo {
+    let mut priority = Priority::P2;
+    let mut due_date = None;
+    let mut tags: Vec<String> = Vec::new();
+    let mut title_parts: Vec<&str> = Vec::new();
+
+    let tokens: Vec<&str> = raw.split_whitespace().collect();
+    let mut i = 0;
+    while i < tokens.len() {
+        let token = tokens[i];
+
+        // Priority keywords
+        if token == "P0" {
+            priority = Priority::P0;
+        } else if token == "P1" {
+            priority = Priority::P1;
+        } else if token == "P3" {
+            priority = Priority::P3;
+        } else if token == "P2" {
+            priority = Priority::P2;
+        }
+        // due: / due： prefix — value may be in same token or the next
+        else if let Some(val) = token.strip_prefix("due:").or_else(|| token.strip_prefix("due：")) {
+            let val = val.trim();
+            if !val.is_empty() {
+                due_date = Some(parse_natural_date(val).unwrap_or_else(|| val.to_string()));
+            } else if i + 1 < tokens.len() {
+                i += 1;
+                let next = tokens[i];
+                due_date = Some(parse_natural_date(next).unwrap_or_else(|| next.to_string()));
+            }
+        }
+        // #tag — strip leading # then trim trailing punctuation
+        else if let Some(tag) = token.strip_prefix('#') {
+            let tag = trim_trailing_punct(tag.trim());
+            if !tag.is_empty() {
+                tags.push(tag.to_string());
+            }
+        }
+        // Plain title word
+        else {
+            title_parts.push(token);
+        }
+
+        i += 1;
+    }
+
+    let title = if title_parts.is_empty() {
+        raw.to_string()
+    } else {
+        title_parts.join(" ")
+    };
+
+    ParsedPipeTodo { title, priority, due_date, tags }
+}
+
 // ─── Natural date parser ───
 
 fn parse_natural_date(text: &str) -> Option<String> {
@@ -170,6 +263,11 @@ fn handle_todo(cmd: &TodoCommands, db_path: Option<&str>, json: bool) -> rusqlit
         TodoCommands::Archive { id } => {
             db::update_todo_status(&conn, id, &TodoStatus::Archived)?;
             println!("📦 Todo archived: {}", id);
+            Ok(())
+        }
+        TodoCommands::Reopen { id } => {
+            db::update_todo_status(&conn, id, &TodoStatus::Pending)?;
+            println!("🔄 Todo reopened: {}", id);
             Ok(())
         }
     }
@@ -402,20 +500,21 @@ fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> rusqlite::Result<()> {
 
     match args.r#type.as_str() {
         "todo" => {
+            let parsed = parse_pipe_todo(&input);
             let todo = Todo {
                 id: uuid::Uuid::new_v4().to_string(),
-                title: input,
+                title: parsed.title,
                 description: None,
-                priority: Priority::P2,
+                priority: parsed.priority,
                 status: TodoStatus::Pending,
-                due_date: None,
-                tags: vec![],
+                due_date: parsed.due_date,
+                tags: parsed.tags,
                 project: None,
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
             };
             db::insert_todo(&conn, &todo)?;
-            println!("✅ Todo (from pipe): {}", todo.title);
+            println!("✅ Todo (from pipe): {} {}", todo.priority.icon(), todo.title);
         }
         "idea" => {
             let idea = Idea::new(input);
@@ -433,4 +532,97 @@ fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> rusqlite::Result<()> {
     }
 
     Ok(())
+}
+
+// ─── Tests ───
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_pipe_todo_plain_text() {
+        let p = parse_pipe_todo("buy milk");
+        assert_eq!(p.title, "buy milk");
+        assert_eq!(p.priority, Priority::P2);
+        assert!(p.due_date.is_none());
+        assert!(p.tags.is_empty());
+    }
+
+    #[test]
+    fn parse_pipe_todo_with_priority() {
+        let p = parse_pipe_todo("P0 fix login bug");
+        assert_eq!(p.title, "fix login bug");
+        assert_eq!(p.priority, Priority::P0);
+    }
+
+    #[test]
+    fn parse_pipe_todo_with_due_date() {
+        let p = parse_pipe_todo("submit report due:tomorrow");
+        assert_eq!(p.title, "submit report");
+        assert!(p.due_date.is_some());
+    }
+
+    #[test]
+    fn parse_pipe_todo_with_due_separate_token() {
+        let p = parse_pipe_todo("submit report due: tomorrow");
+        assert_eq!(p.title, "submit report");
+        assert!(p.due_date.is_some());
+    }
+
+    #[test]
+    fn parse_pipe_todo_with_tags() {
+        let p = parse_pipe_todo("fix login #urgent #backend");
+        assert_eq!(p.title, "fix login");
+        assert_eq!(p.tags, vec!["urgent", "backend"]);
+    }
+
+    #[test]
+    fn parse_pipe_todo_tag_trailing_punct() {
+        let p = parse_pipe_todo("fix login #urgent.");
+        assert_eq!(p.tags, vec!["urgent"]);
+    }
+
+    #[test]
+    fn parse_pipe_todo_all_features() {
+        let p = parse_pipe_todo("P1 fix login bug #urgent due:tomorrow");
+        assert_eq!(p.title, "fix login bug");
+        assert_eq!(p.priority, Priority::P1);
+        assert!(p.due_date.is_some());
+        assert_eq!(p.tags, vec!["urgent"]);
+    }
+
+    #[test]
+    fn parse_pipe_todo_only_keywords_uses_raw() {
+        let p = parse_pipe_todo("P0 #urgent due:tomorrow");
+        // All tokens consumed as keywords → title falls back to raw
+        assert_eq!(p.title, "P0 #urgent due:tomorrow");
+        assert_eq!(p.priority, Priority::P0);
+        assert!(p.due_date.is_some());
+        assert_eq!(p.tags, vec!["urgent"]);
+    }
+
+    #[test]
+    fn trim_trailing_punct_ascii() {
+        assert_eq!(trim_trailing_punct("hello."), "hello");
+        assert_eq!(trim_trailing_punct("hello!"), "hello");
+    }
+
+    #[test]
+    fn trim_trailing_punct_cjk() {
+        assert_eq!(trim_trailing_punct("标签。"), "标签");
+        assert_eq!(trim_trailing_punct("标签，"), "标签");
+    }
+
+    #[test]
+    fn trim_trailing_punct_none() {
+        assert_eq!(trim_trailing_punct("hello"), "hello");
+    }
+
+    #[test]
+    fn parse_pipe_todo_due_fullwidth_colon() {
+        let p = parse_pipe_todo("报告 due：tomorrow");
+        assert_eq!(p.title, "报告");
+        assert!(p.due_date.is_some());
+    }
 }

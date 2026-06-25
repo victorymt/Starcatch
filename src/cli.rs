@@ -46,6 +46,8 @@ pub enum TodoCommands {
     Done { id: String },
     /// Mark todo as archived
     Archive { id: String },
+    /// Reopen todo (set back to pending)
+    Reopen { id: String },
 }
 
 #[derive(clap::Args, Debug)]
