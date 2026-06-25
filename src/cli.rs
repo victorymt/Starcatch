@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 /// ⭐ Starcatch (星捕) — Catch your starlight ideas.
 #[derive(Parser, Debug)]
@@ -32,6 +32,21 @@ pub enum Commands {
 
     /// 🚰 Pipe mode: read from stdin and capture
     Pipe(PipeArgs),
+
+    /// 🔍 Global search across todos, ideas, and logs
+    Search(SearchArgs),
+
+    /// 📊 Show statistics overview
+    Stats,
+
+    /// 📤 Export all data
+    Export(ExportArgs),
+
+    /// ⚡ Quick capture: parse a message into todo/idea/log
+    Commit(CommitArgs),
+
+    /// 🐚 Generate shell completions
+    Completions(CompletionsArgs),
 }
 
 // ─── Todo ───
@@ -42,12 +57,18 @@ pub enum TodoCommands {
     Add(TodoAddArgs),
     /// List todos
     List(TodoListArgs),
+    /// Edit a todo (title, priority, due, tags, project, description)
+    Edit(TodoEditArgs),
+    /// Show full details of a todo
+    Show { id: String },
     /// Mark todo as done
     Done { id: String },
     /// Mark todo as archived
     Archive { id: String },
     /// Reopen todo (set back to pending)
     Reopen { id: String },
+    /// Permanently delete a todo
+    Delete { id: String },
 }
 
 #[derive(clap::Args, Debug)]
@@ -63,7 +84,7 @@ pub struct TodoAddArgs {
     #[arg(short, long, default_value = "P2")]
     pub priority: String,
 
-    /// Due date (YYYY-MM-DD)
+    /// Due date (YYYY-MM-DD or natural language like "tomorrow", "next Monday", "3天")
     #[arg(long)]
     pub due: Option<String>,
 
@@ -72,6 +93,36 @@ pub struct TodoAddArgs {
     pub tag: Option<String>,
 
     /// Project name
+    #[arg(short = 'P', long)]
+    pub project: Option<String>,
+}
+
+#[derive(clap::Args, Debug)]
+pub struct TodoEditArgs {
+    /// ID of the todo to edit
+    pub id: String,
+
+    /// New title
+    #[arg(long)]
+    pub title: Option<String>,
+
+    /// New description
+    #[arg(long)]
+    pub desc: Option<String>,
+
+    /// New priority: P0 (🔴), P1 (🟡), P2 (🟢), P3 (⚪)
+    #[arg(short, long)]
+    pub priority: Option<String>,
+
+    /// New due date
+    #[arg(long)]
+    pub due: Option<String>,
+
+    /// New tags (comma separated, replaces existing)
+    #[arg(short, long)]
+    pub tag: Option<String>,
+
+    /// New project name
     #[arg(short = 'P', long)]
     pub project: Option<String>,
 }
@@ -97,6 +148,18 @@ pub struct TodoListArgs {
     /// Filter by tag
     #[arg(short, long)]
     pub tag: Option<String>,
+
+    /// Filter by project name
+    #[arg(short = 'P', long)]
+    pub project: Option<String>,
+
+    /// Show only overdue todos (due_date < today, status != done)
+    #[arg(long)]
+    pub overdue: bool,
+
+    /// Show only today's todos (due_date == today)
+    #[arg(long)]
+    pub today: bool,
 }
 
 // ─── Idea ───
@@ -107,6 +170,12 @@ pub enum IdeaCommands {
     Add(IdeaAddArgs),
     /// List recent ideas
     List(IdeaListArgs),
+    /// Edit an idea
+    Edit(IdeaEditArgs),
+    /// Show full details of an idea
+    Show { id: String },
+    /// Permanently delete an idea
+    Delete { id: String },
 }
 
 #[derive(clap::Args, Debug)]
@@ -132,6 +201,32 @@ pub struct IdeaListArgs {
     /// How many days back to show
     #[arg(short, long, default_value = "7")]
     pub days: i64,
+
+    /// Filter by tag
+    #[arg(short, long)]
+    pub tag: Option<String>,
+}
+
+#[derive(clap::Args, Debug)]
+pub struct IdeaEditArgs {
+    /// ID of the idea to edit
+    pub id: String,
+
+    /// New title
+    #[arg(long)]
+    pub title: Option<String>,
+
+    /// New content
+    #[arg(short, long)]
+    pub content: Option<String>,
+
+    /// New source
+    #[arg(short, long)]
+    pub source: Option<String>,
+
+    /// New tags (comma separated, replaces existing)
+    #[arg(short, long)]
+    pub tag: Option<String>,
 }
 
 // ─── Log ───
@@ -142,6 +237,12 @@ pub enum LogCommands {
     Add(LogAddArgs),
     /// List recent logs
     List(LogListArgs),
+    /// Edit a log entry
+    Edit(LogEditArgs),
+    /// Show full details of a log entry
+    Show { id: String },
+    /// Permanently delete a log entry
+    Delete { id: String },
 }
 
 #[derive(clap::Args, Debug)]
@@ -163,6 +264,32 @@ pub struct LogListArgs {
     /// How many days back to show
     #[arg(short, long, default_value = "1")]
     pub days: i64,
+
+    /// Filter by tag
+    #[arg(short, long)]
+    pub tag: Option<String>,
+
+    /// Filter by mood
+    #[arg(short, long)]
+    pub mood: Option<String>,
+}
+
+#[derive(clap::Args, Debug)]
+pub struct LogEditArgs {
+    /// ID of the log to edit
+    pub id: String,
+
+    /// New content
+    #[arg(short, long)]
+    pub content: Option<String>,
+
+    /// New mood
+    #[arg(short, long)]
+    pub mood: Option<String>,
+
+    /// New tags (comma separated, replaces existing)
+    #[arg(short, long)]
+    pub tag: Option<String>,
 }
 
 // ─── Pipe ───
@@ -171,4 +298,65 @@ pub struct LogListArgs {
 pub struct PipeArgs {
     /// Type of capture: todo, idea, log
     pub r#type: String,
+}
+
+// ─── Search ───
+
+#[derive(clap::Args, Debug)]
+pub struct SearchArgs {
+    /// Search query (matched against title and content across todos, ideas, and logs)
+    pub query: String,
+}
+
+// ─── Export ───
+
+#[derive(clap::Args, Debug)]
+pub struct ExportArgs {
+    /// Export format
+    #[arg(short, long, default_value = "json")]
+    pub format: ExportFormat,
+}
+
+#[derive(ValueEnum, Clone, Debug)]
+pub enum ExportFormat {
+    /// JSON format (pretty-printed)
+    Json,
+    /// CSV format (one file per entity type)
+    Csv,
+}
+
+// ─── Commit ───
+
+#[derive(clap::Args, Debug)]
+pub struct CommitArgs {
+    /// Quick-capture message (auto-parses priority, tags, due, type)
+    #[arg(short = 'm')]
+    pub message: String,
+
+    /// Override type: todo, idea, log (default: auto-detect from message)
+    #[arg(short, long)]
+    pub r#type: Option<String>,
+}
+
+// ─── Completions ───
+
+#[derive(clap::Args, Debug)]
+pub struct CompletionsArgs {
+    /// Shell to generate completions for
+    #[arg(value_enum)]
+    pub shell: Shell,
+}
+
+#[derive(ValueEnum, Clone, Debug)]
+pub enum Shell {
+    /// Bash shell
+    Bash,
+    /// Zsh shell
+    Zsh,
+    /// Fish shell
+    Fish,
+    /// Elvish shell
+    Elvish,
+    /// PowerShell,
+    PowerShell,
 }

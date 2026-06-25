@@ -22,6 +22,12 @@ chrono = { version = "0.4", features = ["serde"] }
 # Regex
 regex = "1"
 
+# CSV
+csv = "1"
+
+# Shell completions
+clap_complete = "4"
+
 # UUID
 uuid = { version = "1", features = ["v4"] }
 

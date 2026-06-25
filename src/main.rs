@@ -10,6 +10,7 @@ use clap::Parser;
 use regex::Regex;
 
 use cli::*;
+use db::{IdeaUpdate, LogUpdate, TodoUpdate};
 use models::*;
 
 fn default_db_path() -> String {
@@ -42,6 +43,11 @@ fn main() {
         Some(Commands::Idea(cmd)) => handle_idea(cmd, args.db.as_deref(), json),
         Some(Commands::Log(cmd)) => handle_log(cmd, args.db.as_deref(), json),
         Some(Commands::Pipe(cmd)) => handle_pipe(cmd, args.db.as_deref()),
+        Some(Commands::Search(search_args)) => handle_search(search_args, args.db.as_deref(), json),
+        Some(Commands::Stats) => handle_stats(args.db.as_deref(), json),
+        Some(Commands::Export(export_args)) => handle_export(export_args, args.db.as_deref()),
+        Some(Commands::Commit(commit_args)) => handle_commit(commit_args, args.db.as_deref(), json),
+        Some(Commands::Completions(comp_args)) => handle_completions(comp_args),
         None => {
             eprintln!("🌙 Starcatch 星捕 — No command given.");
             eprintln!("   Run `starcatch --help` to see available commands.");
@@ -89,14 +95,16 @@ struct ParsedPipeTodo {
     priority: Priority,
     due_date: Option<String>,
     tags: Vec<String>,
+    project: Option<String>,
 }
 
 /// Parse a quick-input string for pipe mode, mirroring the GUI's parseTodoInput().
-/// Extracts P0-P3 priority, due:/due： dates, #tags — the rest becomes the title.
+/// Extracts P0-P3 priority, due:/due： dates, #tags, project: — the rest becomes the title.
 fn parse_pipe_todo(raw: &str) -> ParsedPipeTodo {
     let mut priority = Priority::P2;
     let mut due_date = None;
     let mut tags: Vec<String> = Vec::new();
+    let mut project = None;
     let mut title_parts: Vec<&str> = Vec::new();
 
     let tokens: Vec<&str> = raw.split_whitespace().collect();
@@ -125,6 +133,16 @@ fn parse_pipe_todo(raw: &str) -> ParsedPipeTodo {
                 due_date = Some(parse_natural_date(next).unwrap_or_else(|| next.to_string()));
             }
         }
+        // project: prefix — value may be in same token or the next
+        else if let Some(val) = token.strip_prefix("project:").or_else(|| token.strip_prefix("project：")) {
+            let val = val.trim();
+            if !val.is_empty() {
+                project = Some(val.to_string());
+            } else if i + 1 < tokens.len() {
+                i += 1;
+                project = Some(tokens[i].to_string());
+            }
+        }
         // #tag — strip leading # then trim trailing punctuation
         else if let Some(tag) = token.strip_prefix('#') {
             let tag = trim_trailing_punct(tag.trim());
@@ -146,7 +164,7 @@ fn parse_pipe_todo(raw: &str) -> ParsedPipeTodo {
         title_parts.join(" ")
     };
 
-    ParsedPipeTodo { title, priority, due_date, tags }
+    ParsedPipeTodo { title, priority, due_date, tags, project }
 }
 
 // ─── Natural date parser ───
@@ -247,7 +265,9 @@ fn parse_natural_date(text: &str) -> Option<String> {
     None
 }
 
+// ═══════════════════════════════════════════════════════════
 // ─── Todo ───
+// ═══════════════════════════════════════════════════════════
 
 fn handle_todo(cmd: &TodoCommands, db_path: Option<&str>, json: bool) -> rusqlite::Result<()> {
     let conn = open_db(db_path)?;
@@ -255,6 +275,8 @@ fn handle_todo(cmd: &TodoCommands, db_path: Option<&str>, json: bool) -> rusqlit
     match cmd {
         TodoCommands::Add(args) => handle_todo_add(args, &conn),
         TodoCommands::List(args) => handle_todo_list(args, &conn, json),
+        TodoCommands::Edit(args) => handle_todo_edit(args, &conn, json),
+        TodoCommands::Show { id } => handle_todo_show(id, &conn, json),
         TodoCommands::Done { id } => {
             db::update_todo_status(&conn, id, &TodoStatus::Done)?;
             println!("✅ Todo marked as done: {}", id);
@@ -268,6 +290,11 @@ fn handle_todo(cmd: &TodoCommands, db_path: Option<&str>, json: bool) -> rusqlit
         TodoCommands::Reopen { id } => {
             db::update_todo_status(&conn, id, &TodoStatus::Pending)?;
             println!("🔄 Todo reopened: {}", id);
+            Ok(())
+        }
+        TodoCommands::Delete { id } => {
+            db::delete_todo(&conn, id)?;
+            println!("🗑️  Todo deleted: {}", id);
             Ok(())
         }
     }
@@ -307,16 +334,90 @@ fn handle_todo_list(args: &TodoListArgs, conn: &rusqlite::Connection, json: bool
     let mut todos = fetch_todos_by_statuses(conn, &show_statuses)?;
     todos.sort_by_key(|t| (t.priority.order(), std::cmp::Reverse(t.created_at)));
 
-    let filtered: Vec<&Todo> = if let Some(tag) = &args.tag {
-        todos.iter().filter(|t| t.tags.iter().any(|t2| t2 == tag)).collect()
-    } else {
-        todos.iter().collect()
-    };
+    let today = Utc::now().date_naive().format("%Y-%m-%d").to_string();
+
+    let filtered: Vec<&Todo> = todos.iter().filter(|t| {
+        if let Some(ref tag) = args.tag {
+            if !t.tags.iter().any(|t2| t2 == tag) {
+                return false;
+            }
+        }
+        if let Some(ref proj) = args.project {
+            if t.project.as_deref() != Some(proj.as_str()) {
+                return false;
+            }
+        }
+        if args.overdue {
+            if t.status == TodoStatus::Done {
+                return false;
+            }
+            match &t.due_date {
+                Some(due) if due.as_str() < today.as_str() => {}
+                _ => return false,
+            }
+        }
+        if args.today {
+            match &t.due_date {
+                Some(due) if due.as_str() == today.as_str() => {}
+                _ => return false,
+            }
+        }
+        true
+    }).collect();
 
     if json {
         println!("{}", serde_json::to_string_pretty(&filtered).unwrap_or_default());
     } else {
         render_todo_list(&filtered);
+    }
+    Ok(())
+}
+
+fn handle_todo_edit(args: &TodoEditArgs, conn: &rusqlite::Connection, json: bool) -> rusqlite::Result<()> {
+    let priority = args.priority.as_deref().map(|p| match p.to_uppercase().as_str() {
+        "P0" => Priority::P0,
+        "P1" => Priority::P1,
+        "P3" => Priority::P3,
+        _ => Priority::P2,
+    });
+
+    let due_date = args.due.as_deref().and_then(parse_natural_date);
+
+    let update = TodoUpdate {
+        title: args.title.clone(),
+        description: args.desc.clone(),
+        priority,
+        due_date,
+        tags: args.tag.as_deref().map(|s| parse_tags(Some(s))),
+        project: args.project.clone(),
+    };
+
+    db::update_todo(conn, &args.id, &update)?;
+
+    if json {
+        let updated = db::get_todo(conn, &args.id)?;
+        println!("{}", serde_json::to_string_pretty(&updated).unwrap_or_default());
+    } else {
+        println!("✏️  Todo updated: {}", args.id);
+    }
+    Ok(())
+}
+
+fn handle_todo_show(id: &str, conn: &rusqlite::Connection, json: bool) -> rusqlite::Result<()> {
+    let todo = db::get_todo(conn, id)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&todo).unwrap_or_default());
+    } else {
+        println!("📋 Todo: {}", todo.id);
+        println!("   Title:       {}", todo.title);
+        println!("   Priority:    {} {}", todo.priority.icon(), todo.priority);
+        println!("   Status:      {}", todo.status);
+        println!("   Due:         {}", todo.due_date.as_deref().unwrap_or("-"));
+        println!("   Tags:        {}", if todo.tags.is_empty() { "-".to_string() } else { todo.tags.join(", ") });
+        println!("   Project:     {}", todo.project.as_deref().unwrap_or("-"));
+        println!("   Description: {}", todo.description.as_deref().unwrap_or("-"));
+        println!("   Created:     {}", todo.created_at.format("%Y-%m-%d %H:%M"));
+        println!("   Updated:     {}", todo.updated_at.format("%Y-%m-%d %H:%M"));
     }
     Ok(())
 }
@@ -386,7 +487,9 @@ fn render_todo_list(todos: &[&Todo]) {
     }
 }
 
+// ═══════════════════════════════════════════════════════════
 // ─── Idea ───
+// ═══════════════════════════════════════════════════════════
 
 fn handle_idea(cmd: &IdeaCommands, db_path: Option<&str>, json: bool) -> rusqlite::Result<()> {
     let conn = open_db(db_path)?;
@@ -409,17 +512,25 @@ fn handle_idea(cmd: &IdeaCommands, db_path: Option<&str>, json: bool) -> rusqlit
             } else {
                 println!("💡 Idea captured: {}", idea.title);
             }
+            Ok(())
         }
 
         IdeaCommands::List(args) => {
             let ideas = db::list_ideas(&conn, Some(args.days))?;
+
+            let filtered: Vec<&Idea> = if let Some(ref tag) = args.tag {
+                ideas.iter().filter(|i| i.tags.iter().any(|t| t == tag)).collect()
+            } else {
+                ideas.iter().collect()
+            };
+
             if json {
-                println!("{}", serde_json::to_string_pretty(&ideas).unwrap_or_default());
-            } else if ideas.is_empty() {
+                println!("{}", serde_json::to_string_pretty(&filtered).unwrap_or_default());
+            } else if filtered.is_empty() {
                 println!("💭 No ideas in the last {} days.", args.days);
             } else {
                 println!("💭 Ideas (last {} days):", args.days);
-                for idea in &ideas {
+                for idea in &filtered {
                     let source = idea.source.as_deref().unwrap_or("?");
                     let tags = idea.tags.join(", ");
                     let tag_str = if tags.is_empty() { "".to_string() } else { format!(" [{}]", tags) };
@@ -432,13 +543,52 @@ fn handle_idea(cmd: &IdeaCommands, db_path: Option<&str>, json: bool) -> rusqlit
                     );
                 }
             }
+            Ok(())
+        }
+
+        IdeaCommands::Edit(args) => {
+            let update = IdeaUpdate {
+                title: args.title.clone(),
+                content: args.content.clone(),
+                source: args.source.clone(),
+                tags: args.tag.as_deref().map(|s| parse_tags(Some(s))),
+            };
+            db::update_idea(&conn, &args.id, &update)?;
+            if json {
+                let updated = db::get_idea(&conn, &args.id)?;
+                println!("{}", serde_json::to_string_pretty(&updated).unwrap_or_default());
+            } else {
+                println!("✏️  Idea updated: {}", args.id);
+            }
+            Ok(())
+        }
+
+        IdeaCommands::Show { id } => {
+            let idea = db::get_idea(&conn, id)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&idea).unwrap_or_default());
+            } else {
+                println!("💡 Idea: {}", idea.id);
+                println!("   Title:   {}", idea.title);
+                println!("   Content: {}", idea.content.as_deref().unwrap_or("-"));
+                println!("   Source:  {}", idea.source.as_deref().unwrap_or("-"));
+                println!("   Tags:    {}", if idea.tags.is_empty() { "-".to_string() } else { idea.tags.join(", ") });
+                println!("   Created: {}", idea.created_at.format("%Y-%m-%d %H:%M"));
+            }
+            Ok(())
+        }
+
+        IdeaCommands::Delete { id } => {
+            db::delete_idea(&conn, id)?;
+            println!("🗑️  Idea deleted: {}", id);
+            Ok(())
         }
     }
-
-    Ok(())
 }
 
+// ═══════════════════════════════════════════════════════════
 // ─── Log ───
+// ═══════════════════════════════════════════════════════════
 
 fn handle_log(cmd: &LogCommands, db_path: Option<&str>, json: bool) -> rusqlite::Result<()> {
     let conn = open_db(db_path)?;
@@ -461,28 +611,86 @@ fn handle_log(cmd: &LogCommands, db_path: Option<&str>, json: bool) -> rusqlite:
                 let mood_icon = log.mood.as_deref().unwrap_or("");
                 println!("📓 Log saved {}{}", mood_icon, if !mood_icon.is_empty() { " " } else { "" });
             }
+            Ok(())
         }
 
         LogCommands::List(args) => {
             let logs = db::list_logs(&conn, Some(args.days))?;
+
+            let filtered: Vec<&Log> = logs.iter().filter(|l| {
+                if let Some(ref tag) = args.tag {
+                    if !l.tags.iter().any(|t| t == tag) {
+                        return false;
+                    }
+                }
+                if let Some(ref mood) = args.mood {
+                    if l.mood.as_deref() != Some(mood.as_str()) {
+                        return false;
+                    }
+                }
+                true
+            }).collect();
+
             if json {
-                println!("{}", serde_json::to_string_pretty(&logs).unwrap_or_default());
-            } else if logs.is_empty() {
+                println!("{}", serde_json::to_string_pretty(&filtered).unwrap_or_default());
+            } else if filtered.is_empty() {
                 println!("📓 No logs in the last {} days.", args.days);
             } else {
                 println!("📓 Logs (last {} days):", args.days);
-                for log in &logs {
+                for log in &filtered {
                     let mood = log.mood.as_deref().unwrap_or("");
-                    println!("  📝 [{}] {} {}", log.created_at.format("%m-%d %H:%M"), mood, log.content);
+                    let tags = log.tags.join(", ");
+                    let tag_str = if tags.is_empty() { "".to_string() } else { format!(" [{}]", tags) };
+                    println!("  📝 [{}] {} {}{}", log.created_at.format("%m-%d %H:%M"), mood, log.content, tag_str);
                 }
             }
+            Ok(())
+        }
+
+        LogCommands::Edit(args) => {
+            let update = LogUpdate {
+                content: args.content.clone(),
+                mood: args.mood.clone(),
+                tags: args.tag.as_deref().map(|s| parse_tags(Some(s))),
+            };
+            db::update_log(&conn, &args.id, &update)?;
+            if json {
+                let updated = db::get_log(&conn, &args.id)?;
+                println!("{}", serde_json::to_string_pretty(&updated).unwrap_or_default());
+            } else {
+                println!("✏️  Log updated: {}", args.id);
+            }
+            Ok(())
+        }
+
+        LogCommands::Show { id } => {
+            let log = db::get_log(&conn, id)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&log).unwrap_or_default());
+            } else {
+                println!("📓 Log: {}", log.id);
+                println!("   Content: {}", log.content);
+                println!("   Mood:    {}", log.mood.as_deref().unwrap_or("-"));
+                println!("   Tags:    {}", if log.tags.is_empty() { "-".to_string() } else { log.tags.join(", ") });
+                println!("   Created: {}", log.created_at.format("%Y-%m-%d %H:%M"));
+                if let Some(up) = log.updated_at {
+                    println!("   Updated: {}", up.format("%Y-%m-%d %H:%M"));
+                }
+            }
+            Ok(())
+        }
+
+        LogCommands::Delete { id } => {
+            db::delete_log(&conn, id)?;
+            println!("🗑️  Log deleted: {}", id);
+            Ok(())
         }
     }
-
-    Ok(())
 }
 
+// ═══════════════════════════════════════════════════════════
 // ─── Pipe ───
+// ═══════════════════════════════════════════════════════════
 
 fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> rusqlite::Result<()> {
     let mut input = String::new();
@@ -509,7 +717,7 @@ fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> rusqlite::Result<()> {
                 status: TodoStatus::Pending,
                 due_date: parsed.due_date,
                 tags: parsed.tags,
-                project: None,
+                project: parsed.project,
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
             };
@@ -534,7 +742,167 @@ fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> rusqlite::Result<()> {
     Ok(())
 }
 
+// ═══════════════════════════════════════════════════════════
+// ─── Search ───
+// ═══════════════════════════════════════════════════════════
+
+fn handle_search(args: &SearchArgs, db_path: Option<&str>, json: bool) -> rusqlite::Result<()> {
+    let conn = open_db(db_path)?;
+    let results = db::search_all(&conn, &args.query)?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&results).unwrap_or_default());
+    } else if results.is_empty() {
+        println!("🔍 No results for \"{}\".", args.query);
+    } else {
+        println!("🔍 Search results for \"{}\":", args.query);
+        for r in &results {
+            let type_icon = match r.entity_type.as_str() {
+                "todo" => "📋",
+                "idea" => "💡",
+                "log" => "📝",
+                _ => "•",
+            };
+            let sub = if r.subtitle.is_empty() {
+                "".to_string()
+            } else if r.subtitle.len() > 60 {
+                format!(" — {}...", &r.subtitle[..60])
+            } else {
+                format!(" — {}", r.subtitle)
+            };
+            println!("  {} [{}] {}{}", type_icon, r.entity_type, r.title, sub);
+            println!("      id: {} | {}", r.id, r.created_at);
+        }
+    }
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════
+// ─── Stats ───
+// ═══════════════════════════════════════════════════════════
+
+fn handle_stats(db_path: Option<&str>, json: bool) -> rusqlite::Result<()> {
+    let conn = open_db(db_path)?;
+    let stats = db::get_stats(&conn)?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&stats).unwrap_or_default());
+    } else {
+        println!("📊 Starcatch Stats:");
+        println!("   📋 Pending todos:  {}", stats.pending_todos);
+        println!("   ✅ Done today:     {}", stats.done_today);
+        println!("   📦 Total todos:    {}", stats.total_todos);
+        println!("   💡 Ideas (7d):     {}", stats.ideas_7d);
+        println!("   📓 Logs (7d):      {}", stats.logs_7d);
+    }
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════
+// ─── Export ───
+// ═══════════════════════════════════════════════════════════
+
+fn handle_export(args: &ExportArgs, db_path: Option<&str>) -> rusqlite::Result<()> {
+    let conn = open_db(db_path)?;
+
+    match args.format {
+        ExportFormat::Json => {
+            let data = db::export_all(&conn)?;
+            println!("{}", serde_json::to_string_pretty(&data).unwrap_or_default());
+        }
+        ExportFormat::Csv => {
+            let csv = db::export_csv(&conn)?;
+            print!("{}", csv);
+        }
+    }
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════
+// ─── Commit ───
+// ═══════════════════════════════════════════════════════════
+
+/// Quick-capture: parse a message like "P1 fix login bug #urgent due:tomorrow"
+/// and auto-detect the type. Defaults to todo; override with --type.
+fn handle_commit(args: &CommitArgs, db_path: Option<&str>, json: bool) -> rusqlite::Result<()> {
+    let conn = open_db(db_path)?;
+    let msg = args.message.trim();
+    let cap_type = args.r#type.as_deref().unwrap_or("todo");
+
+    match cap_type {
+        "todo" => {
+            let parsed = parse_pipe_todo(msg);
+            let todo = Todo {
+                id: uuid::Uuid::new_v4().to_string(),
+                title: parsed.title,
+                description: None,
+                priority: parsed.priority,
+                status: TodoStatus::Pending,
+                due_date: parsed.due_date,
+                tags: parsed.tags,
+                project: parsed.project,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            };
+            db::insert_todo(&conn, &todo)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&todo).unwrap_or_default());
+            } else {
+                println!("✅ Committed: {} {}", todo.priority.icon(), todo.title);
+            }
+        }
+        "idea" => {
+            let idea = Idea::new(msg.to_string());
+            db::insert_idea(&conn, &idea)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&idea).unwrap_or_default());
+            } else {
+                println!("💡 Committed: {}", idea.title);
+            }
+        }
+        "log" => {
+            let log = Log::new(msg.to_string());
+            db::insert_log(&conn, &log)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&log).unwrap_or_default());
+            } else {
+                println!("📓 Committed: {}", log.content);
+            }
+        }
+        other => {
+            eprintln!("⚠️  Unknown type: {}. Use: todo, idea, log", other);
+        }
+    }
+
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════
+// ─── Completions ───
+// ═══════════════════════════════════════════════════════════
+
+fn handle_completions(args: &CompletionsArgs) -> rusqlite::Result<()> {
+    use clap::CommandFactory;
+    use clap_complete::{generate, Shell as ClapShell};
+
+    let mut cmd = <Args as CommandFactory>::command();
+    let name = "starcatch";
+
+    let shell = match args.shell {
+        Shell::Bash => ClapShell::Bash,
+        Shell::Zsh => ClapShell::Zsh,
+        Shell::Fish => ClapShell::Fish,
+        Shell::Elvish => ClapShell::Elvish,
+        Shell::PowerShell => ClapShell::PowerShell,
+    };
+
+    generate(shell, &mut cmd, name, &mut std::io::stdout());
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════
 // ─── Tests ───
+// ═══════════════════════════════════════════════════════════
 
 #[cfg(test)]
 mod tests {
@@ -547,6 +915,7 @@ mod tests {
         assert_eq!(p.priority, Priority::P2);
         assert!(p.due_date.is_none());
         assert!(p.tags.is_empty());
+        assert!(p.project.is_none());
     }
 
     #[test]
@@ -595,11 +964,34 @@ mod tests {
     #[test]
     fn parse_pipe_todo_only_keywords_uses_raw() {
         let p = parse_pipe_todo("P0 #urgent due:tomorrow");
-        // All tokens consumed as keywords → title falls back to raw
         assert_eq!(p.title, "P0 #urgent due:tomorrow");
         assert_eq!(p.priority, Priority::P0);
         assert!(p.due_date.is_some());
         assert_eq!(p.tags, vec!["urgent"]);
+    }
+
+    #[test]
+    fn parse_pipe_todo_with_project() {
+        let p = parse_pipe_todo("fix login project:myapp");
+        assert_eq!(p.title, "fix login");
+        assert_eq!(p.project.as_deref(), Some("myapp"));
+    }
+
+    #[test]
+    fn parse_pipe_todo_with_project_separate_token() {
+        let p = parse_pipe_todo("fix login project: myapp");
+        assert_eq!(p.title, "fix login");
+        assert_eq!(p.project.as_deref(), Some("myapp"));
+    }
+
+    #[test]
+    fn parse_pipe_todo_with_project_and_tags() {
+        let p = parse_pipe_todo("P1 fix login #urgent project:backend due:tomorrow");
+        assert_eq!(p.title, "fix login");
+        assert_eq!(p.priority, Priority::P1);
+        assert_eq!(p.tags, vec!["urgent"]);
+        assert_eq!(p.project.as_deref(), Some("backend"));
+        assert!(p.due_date.is_some());
     }
 
     #[test]
@@ -624,5 +1016,519 @@ mod tests {
         let p = parse_pipe_todo("报告 due：tomorrow");
         assert_eq!(p.title, "报告");
         assert!(p.due_date.is_some());
+    }
+
+    // ─── Handler integration tests ───
+
+    /// Create a temp DB, run migrations, return the file path (keeps TempDir alive).
+    fn setup_temp_db() -> (tempfile::TempDir, String) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+        let path_str = path.to_str().unwrap().to_string();
+        let conn = db::open(&path_str).unwrap();
+        db::migrate(&conn).unwrap();
+        (dir, path_str)
+    }
+
+    /// Add a todo and return its ID.
+    fn add_todo_via_handler(db_path: &str) -> String {
+        let args = TodoAddArgs {
+            title: "test todo".to_string(),
+            desc: Some("desc".to_string()),
+            priority: "P1".to_string(),
+            due: None,
+            tag: Some("test,dev".to_string()),
+            project: Some("proj".to_string()),
+        };
+        handle_todo_add(&args, &open_db(Some(db_path)).unwrap()).unwrap();
+        // Fetch the most recent todo to get its ID
+        let conn = open_db(Some(db_path)).unwrap();
+        let todos = db::list_todos(&conn, None).unwrap();
+        todos.first().unwrap().id.clone()
+    }
+
+    #[test]
+    fn handler_todo_edit_updates_fields() {
+        let (_dir, db_path) = setup_temp_db();
+        let id = add_todo_via_handler(&db_path);
+
+        let edit_args = TodoEditArgs {
+            id: id.clone(),
+            title: Some("edited".to_string()),
+            desc: None,
+            priority: Some("P0".to_string()),
+            due: Some("2027-06-01".to_string()),
+            tag: Some("urgent".to_string()),
+            project: Some("newproj".to_string()),
+        };
+        handle_todo_edit(&edit_args, &open_db(Some(&db_path)).unwrap(), false).unwrap();
+
+        let conn = open_db(Some(&db_path)).unwrap();
+        let todo = db::get_todo(&conn, &id).unwrap();
+        assert_eq!(todo.title, "edited");
+        assert_eq!(todo.priority, Priority::P0);
+        assert_eq!(todo.due_date.as_deref(), Some("2027-06-01"));
+        assert_eq!(todo.tags, vec!["urgent"]);
+        assert_eq!(todo.project.as_deref(), Some("newproj"));
+    }
+
+    #[test]
+    fn handler_todo_edit_partial() {
+        let (_dir, db_path) = setup_temp_db();
+        let id = add_todo_via_handler(&db_path);
+
+        let edit_args = TodoEditArgs {
+            id: id.clone(),
+            title: Some("only title".to_string()),
+            desc: None,
+            priority: None,
+            due: None,
+            tag: None,
+            project: None,
+        };
+        handle_todo_edit(&edit_args, &open_db(Some(&db_path)).unwrap(), false).unwrap();
+
+        let conn = open_db(Some(&db_path)).unwrap();
+        let todo = db::get_todo(&conn, &id).unwrap();
+        assert_eq!(todo.title, "only title");
+        assert_eq!(todo.priority, Priority::P1); // unchanged
+    }
+
+    #[test]
+    fn handler_todo_edit_nonexistent_errors() {
+        let (_dir, db_path) = setup_temp_db();
+        let edit_args = TodoEditArgs {
+            id: "nonexistent".to_string(),
+            title: Some("nope".to_string()),
+            desc: None,
+            priority: None,
+            due: None,
+            tag: None,
+            project: None,
+        };
+        let result = handle_todo_edit(&edit_args, &open_db(Some(&db_path)).unwrap(), false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn handler_todo_show_json() {
+        let (_dir, db_path) = setup_temp_db();
+        let id = add_todo_via_handler(&db_path);
+        let result = handle_todo_show(&id, &open_db(Some(&db_path)).unwrap(), false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn handler_todo_show_nonexistent_errors() {
+        let (_dir, db_path) = setup_temp_db();
+        let result = handle_todo_show("nonexistent", &open_db(Some(&db_path)).unwrap(), false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn handler_todo_delete_removes() {
+        let (_dir, db_path) = setup_temp_db();
+        let id = add_todo_via_handler(&db_path);
+        let conn = open_db(Some(&db_path)).unwrap();
+        db::delete_todo(&conn, &id).unwrap();
+        assert!(db::get_todo(&conn, &id).is_err());
+    }
+
+    #[test]
+    fn handler_todo_list_overdue() {
+        let (_dir, db_path) = setup_temp_db();
+        // Add overdue todo
+        let conn = open_db(Some(&db_path)).unwrap();
+        let overdue = Todo {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: "overdue".to_string(),
+            description: None,
+            priority: Priority::P2,
+            status: TodoStatus::Pending,
+            due_date: Some("2020-01-01".to_string()),
+            tags: vec![],
+            project: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        db::insert_todo(&conn, &overdue).unwrap();
+
+        let _list_args = TodoListArgs {
+            pending: false, done: false, archived: false, all: true,
+            tag: None, project: None, overdue: true, today: false,
+        };
+        // We test via direct DB access since handler prints
+        let todos = fetch_todos_by_statuses(&conn, &["pending", "done", "archived"]).unwrap();
+        let today = Utc::now().date_naive().format("%Y-%m-%d").to_string();
+        let filtered: Vec<_> = todos.iter().filter(|t| {
+            t.status != TodoStatus::Done
+                && t.due_date.as_ref().map_or(false, |d| d.as_str() < today.as_str())
+        }).collect();
+        assert!(!filtered.is_empty());
+        assert_eq!(filtered[0].title, "overdue");
+    }
+
+    #[test]
+    fn handler_todo_list_today() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+        let today_str = Utc::now().date_naive().format("%Y-%m-%d").to_string();
+        let today_todo = Todo {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: "today task".to_string(),
+            description: None,
+            priority: Priority::P2,
+            status: TodoStatus::Pending,
+            due_date: Some(today_str.clone()),
+            tags: vec![],
+            project: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        db::insert_todo(&conn, &today_todo).unwrap();
+
+        let todos = db::list_todos(&conn, Some("pending")).unwrap();
+        let filtered: Vec<_> = todos.iter().filter(|t| {
+            t.due_date.as_ref().map_or(false, |d| d.as_str() == today_str.as_str())
+        }).collect();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].title, "today task");
+    }
+
+    #[test]
+    fn handler_todo_list_project_filter() {
+        let (_dir, db_path) = setup_temp_db();
+        add_todo_via_handler(&db_path); // has project="proj"
+
+        let conn = open_db(Some(&db_path)).unwrap();
+        let todos = db::list_todos(&conn, None).unwrap();
+        let filtered: Vec<_> = todos.iter().filter(|t| t.project.as_deref() == Some("proj")).collect();
+        assert_eq!(filtered.len(), 1);
+
+        let none: Vec<_> = todos.iter().filter(|t| t.project.as_deref() == Some("nope")).collect();
+        assert!(none.is_empty());
+    }
+
+    // ─── Idea handler tests ───
+
+    #[test]
+    fn handler_idea_edit_and_delete() {
+        let (_dir, db_path) = setup_temp_db();
+        // Add idea
+        let conn = open_db(Some(&db_path)).unwrap();
+        let idea = Idea {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: "original".to_string(),
+            content: Some("content".to_string()),
+            source: Some("src".to_string()),
+            context_window: None,
+            tags: vec!["old".to_string()],
+            created_at: Utc::now(),
+        };
+        db::insert_idea(&conn, &idea).unwrap();
+
+        // Edit
+        let update = IdeaUpdate {
+            title: Some("updated".to_string()),
+            content: None,
+            source: None,
+            tags: Some(vec!["new".to_string()]),
+        };
+        db::update_idea(&conn, &idea.id, &update).unwrap();
+        let fetched = db::get_idea(&conn, &idea.id).unwrap();
+        assert_eq!(fetched.title, "updated");
+        assert_eq!(fetched.tags, vec!["new"]);
+
+        // Delete
+        db::delete_idea(&conn, &idea.id).unwrap();
+        assert!(db::get_idea(&conn, &idea.id).is_err());
+    }
+
+    #[test]
+    fn handler_idea_list_tag_filter() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+        let idea1 = Idea {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: "tagged".to_string(),
+            content: None, source: None, context_window: None,
+            tags: vec!["important".to_string()],
+            created_at: Utc::now(),
+        };
+        let idea2 = Idea {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: "other".to_string(),
+            content: None, source: None, context_window: None,
+            tags: vec![],
+            created_at: Utc::now(),
+        };
+        db::insert_idea(&conn, &idea1).unwrap();
+        db::insert_idea(&conn, &idea2).unwrap();
+
+        let ideas = db::list_ideas(&conn, Some(7)).unwrap();
+        let filtered: Vec<_> = ideas.iter().filter(|i| i.tags.iter().any(|t| t == "important")).collect();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].title, "tagged");
+    }
+
+    // ─── Log handler tests ───
+
+    #[test]
+    fn handler_log_edit_and_delete() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+        let log = Log {
+            id: uuid::Uuid::new_v4().to_string(),
+            content: "original".to_string(),
+            mood: Some("happy".to_string()),
+            tags: vec!["old".to_string()],
+            created_at: Utc::now(),
+            updated_at: None,
+        };
+        db::insert_log(&conn, &log).unwrap();
+
+        // Edit
+        let update = LogUpdate {
+            content: Some("updated".to_string()),
+            mood: Some("productive".to_string()),
+            tags: None,
+        };
+        db::update_log(&conn, &log.id, &update).unwrap();
+        let fetched = db::get_log(&conn, &log.id).unwrap();
+        assert_eq!(fetched.content, "updated");
+        assert_eq!(fetched.mood.as_deref(), Some("productive"));
+
+        // Delete
+        db::delete_log(&conn, &log.id).unwrap();
+        assert!(db::get_log(&conn, &log.id).is_err());
+    }
+
+    #[test]
+    fn handler_log_list_filters() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+        let log1 = Log {
+            id: uuid::Uuid::new_v4().to_string(),
+            content: "log1".to_string(),
+            mood: Some("happy".to_string()),
+            tags: vec!["work".to_string()],
+            created_at: Utc::now(),
+            updated_at: None,
+        };
+        let log2 = Log {
+            id: uuid::Uuid::new_v4().to_string(),
+            content: "log2".to_string(),
+            mood: Some("sad".to_string()),
+            tags: vec![],
+            created_at: Utc::now(),
+            updated_at: None,
+        };
+        db::insert_log(&conn, &log1).unwrap();
+        db::insert_log(&conn, &log2).unwrap();
+
+        let logs = db::list_logs(&conn, Some(7)).unwrap();
+
+        // Mood filter
+        let by_mood: Vec<_> = logs.iter().filter(|l| l.mood.as_deref() == Some("happy")).collect();
+        assert_eq!(by_mood.len(), 1);
+
+        // Tag filter
+        let by_tag: Vec<_> = logs.iter().filter(|l| l.tags.iter().any(|t| t == "work")).collect();
+        assert_eq!(by_tag.len(), 1);
+    }
+
+    // ─── Search handler tests ───
+
+    #[test]
+    fn handler_search_finds_across_types() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+        // Insert one of each
+        let todo = Todo {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: "deploy API".to_string(),
+            description: None,
+            priority: Priority::P2,
+            status: TodoStatus::Pending,
+            due_date: None,
+            tags: vec![],
+            project: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        let idea = Idea {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: "API v2".to_string(),
+            content: Some("deploy strategy".to_string()),
+            source: None, context_window: None,
+            tags: vec![],
+            created_at: Utc::now(),
+        };
+        let log = Log {
+            id: uuid::Uuid::new_v4().to_string(),
+            content: "deployed to prod".to_string(),
+            mood: None,
+            tags: vec![],
+            created_at: Utc::now(),
+            updated_at: None,
+        };
+        db::insert_todo(&conn, &todo).unwrap();
+        db::insert_idea(&conn, &idea).unwrap();
+        db::insert_log(&conn, &log).unwrap();
+
+        let results = db::search_all(&conn, "deploy").unwrap();
+        // Should find all three
+        assert!(results.iter().any(|r| r.entity_type == "todo"));
+        assert!(results.iter().any(|r| r.entity_type == "idea"));
+        assert!(results.iter().any(|r| r.entity_type == "log"));
+    }
+
+    #[test]
+    fn handler_search_no_match() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+        let results = db::search_all(&conn, "zzz_nonexistent").unwrap();
+        assert!(results.is_empty());
+    }
+
+    // ─── Stats handler tests ───
+
+    #[test]
+    fn handler_stats_reflects_data() {
+        let (_dir, db_path) = setup_temp_db();
+        add_todo_via_handler(&db_path);
+
+        let conn = open_db(Some(&db_path)).unwrap();
+        let stats = db::get_stats(&conn).unwrap();
+        assert!(stats.pending_todos >= 1);
+        assert!(stats.total_todos >= 1);
+    }
+
+    // ─── Export handler tests ───
+
+    #[test]
+    fn handler_export_json_includes_data() {
+        let (_dir, db_path) = setup_temp_db();
+        add_todo_via_handler(&db_path);
+
+        let conn = open_db(Some(&db_path)).unwrap();
+        let data = db::export_all(&conn).unwrap();
+        assert!(!data.todos.is_empty());
+    }
+
+    // ─── Commit handler tests ───
+
+    #[test]
+    fn handler_commit_todo_parses_message() {
+        let (_dir, db_path) = setup_temp_db();
+        let args = CommitArgs {
+            message: "P1 fix login bug #urgent due:tomorrow project:backend".to_string(),
+            r#type: None,
+        };
+        handle_commit(&args, Some(&db_path), false).unwrap();
+
+        let conn = open_db(Some(&db_path)).unwrap();
+        let todos = db::list_todos(&conn, None).unwrap();
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].title, "fix login bug");
+        assert_eq!(todos[0].priority, Priority::P1);
+        assert_eq!(todos[0].tags, vec!["urgent"]);
+        assert_eq!(todos[0].project.as_deref(), Some("backend"));
+        assert!(todos[0].due_date.is_some());
+    }
+
+    #[test]
+    fn handler_commit_idea() {
+        let (_dir, db_path) = setup_temp_db();
+        let args = CommitArgs {
+            message: "a new idea".to_string(),
+            r#type: Some("idea".to_string()),
+        };
+        handle_commit(&args, Some(&db_path), false).unwrap();
+
+        let conn = open_db(Some(&db_path)).unwrap();
+        let ideas = db::list_ideas(&conn, None).unwrap();
+        assert_eq!(ideas.len(), 1);
+        assert_eq!(ideas[0].title, "a new idea");
+    }
+
+    #[test]
+    fn handler_commit_log() {
+        let (_dir, db_path) = setup_temp_db();
+        let args = CommitArgs {
+            message: "worked on feature X".to_string(),
+            r#type: Some("log".to_string()),
+        };
+        handle_commit(&args, Some(&db_path), false).unwrap();
+
+        let conn = open_db(Some(&db_path)).unwrap();
+        let logs = db::list_logs(&conn, None).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].content, "worked on feature X");
+    }
+
+    // ─── Completions handler test ───
+
+    #[test]
+    fn handler_completions_all_shells() {
+        // Verify completions generation doesn't panic for any shell
+        for shell in [Shell::Bash, Shell::Zsh, Shell::Fish, Shell::Elvish, Shell::PowerShell] {
+            let args = CompletionsArgs { shell };
+            // Redirect stdout to avoid output clutter
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                use clap::CommandFactory;
+                use clap_complete::{generate, Shell as ClapShell};
+                let mut cmd = <Args as CommandFactory>::command();
+                let s = match args.shell {
+                    Shell::Bash => ClapShell::Bash,
+                    Shell::Zsh => ClapShell::Zsh,
+                    Shell::Fish => ClapShell::Fish,
+                    Shell::Elvish => ClapShell::Elvish,
+                    Shell::PowerShell => ClapShell::PowerShell,
+                };
+                generate(s, &mut cmd, "starcatch", &mut std::io::sink());
+            }));
+            assert!(result.is_ok(), "completions failed for shell");
+        }
+    }
+
+    // ─── Natural date parser tests ───
+
+    #[test]
+    fn parse_natural_date_today() {
+        let today = Utc::now().date_naive().format("%Y-%m-%d").to_string();
+        assert_eq!(parse_natural_date("today"), Some(today.clone()));
+        assert_eq!(parse_natural_date("今天"), Some(today));
+    }
+
+    #[test]
+    fn parse_natural_date_tomorrow() {
+        let tomorrow = (Utc::now().date_naive() + Duration::days(1)).format("%Y-%m-%d").to_string();
+        assert_eq!(parse_natural_date("tomorrow"), Some(tomorrow.clone()));
+        assert_eq!(parse_natural_date("明天"), Some(tomorrow));
+    }
+
+    #[test]
+    fn parse_natural_date_numeric() {
+        let d3 = (Utc::now().date_naive() + Duration::days(3)).format("%Y-%m-%d").to_string();
+        assert_eq!(parse_natural_date("3天"), Some(d3.clone()));
+        assert_eq!(parse_natural_date("3d"), Some(d3.clone()));
+        assert_eq!(parse_natural_date("3"), Some(d3));
+    }
+
+    #[test]
+    fn parse_natural_date_iso() {
+        assert_eq!(parse_natural_date("2026-12-25"), Some("2026-12-25".to_string()));
+    }
+
+    #[test]
+    fn parse_natural_date_next_weekday() {
+        let result = parse_natural_date("next Monday");
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn parse_natural_date_unknown_returns_none() {
+        assert_eq!(parse_natural_date("blarg"), None);
     }
 }
