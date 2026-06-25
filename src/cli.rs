@@ -42,9 +42,6 @@ pub enum Commands {
     /// 📤 Export all data
     Export(ExportArgs),
 
-    /// ⚡ Quick capture: parse a message into todo/idea/log
-    Commit(CommitArgs),
-
     /// 🐚 Generate shell completions
     Completions(CompletionsArgs),
 }
@@ -349,18 +346,6 @@ pub enum ExportFormat {
     Csv,
 }
 
-// ─── Commit ───
-
-#[derive(clap::Args, Debug)]
-pub struct CommitArgs {
-    /// Quick-capture message (auto-parses priority, tags, due, type)
-    #[arg(short = 'm')]
-    pub message: String,
-
-    /// Override type: todo, idea, log (default: auto-detect from message)
-    #[arg(short, long)]
-    pub r#type: Option<String>,
-}
 
 // ─── Completions ───
 

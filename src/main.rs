@@ -46,7 +46,6 @@ fn main() {
         Some(Commands::Search(search_args)) => handle_search(search_args, args.db.as_deref(), json),
         Some(Commands::Stats) => handle_stats(args.db.as_deref(), json),
         Some(Commands::Export(export_args)) => handle_export(export_args, args.db.as_deref()),
-        Some(Commands::Commit(commit_args)) => handle_commit(commit_args, args.db.as_deref(), json),
         Some(Commands::Completions(comp_args)) => handle_completions(comp_args),
         None => {
             eprintln!("🌙 Starcatch 星捕 — No command given.");
@@ -957,83 +956,6 @@ fn handle_export(args: &ExportArgs, db_path: Option<&str>) -> rusqlite::Result<(
     Ok(())
 }
 
-// ═══════════════════════════════════════════════════════════
-// ─── Commit ───
-// ═══════════════════════════════════════════════════════════
-
-/// Quick-capture: parse a message like "P1 fix login bug #urgent due:tomorrow"
-/// and auto-detect the type. Defaults to todo; override with --type.
-fn handle_commit(args: &CommitArgs, db_path: Option<&str>, json: bool) -> rusqlite::Result<()> {
-    let conn = open_db(db_path)?;
-    let msg = args.message.trim();
-    let cap_type = args.r#type.as_deref().unwrap_or("todo");
-
-    match cap_type {
-        "todo" => {
-            let parsed = parse_pipe_todo(msg);
-            let todo = Todo {
-                id: uuid::Uuid::new_v4().to_string(),
-                title: parsed.title,
-                description: None,
-                priority: parsed.priority,
-                status: TodoStatus::Pending,
-                due_date: parsed.due_date,
-                tags: parsed.tags,
-                project: parsed.project,
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
-            };
-            db::insert_todo(&conn, &todo)?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&todo).unwrap_or_default());
-            } else {
-                println!("✅ Committed: {} {}", todo.priority.icon(), todo.title);
-            }
-        }
-        "idea" => {
-            let parsed = parse_pipe_idea(msg);
-            let idea = Idea {
-                id: uuid::Uuid::new_v4().to_string(),
-                title: parsed.title,
-                content: None,
-                source: parsed.source,
-                context_window: None,
-                tags: parsed.tags,
-                project: parsed.project,
-                created_at: Utc::now(),
-            };
-            db::insert_idea(&conn, &idea)?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&idea).unwrap_or_default());
-            } else {
-                println!("💡 Committed: {}", idea.title);
-            }
-        }
-        "log" => {
-            let parsed = parse_pipe_log(msg);
-            let log = Log {
-                id: uuid::Uuid::new_v4().to_string(),
-                content: parsed.content,
-                mood: parsed.mood,
-                tags: parsed.tags,
-                project: parsed.project,
-                created_at: Utc::now(),
-                updated_at: None,
-            };
-            db::insert_log(&conn, &log)?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&log).unwrap_or_default());
-            } else {
-                println!("📓 Committed: {}", log.content);
-            }
-        }
-        other => {
-            eprintln!("⚠️  Unknown type: {}. Use: todo, idea, log", other);
-        }
-    }
-
-    Ok(())
-}
 
 // ═══════════════════════════════════════════════════════════
 // ─── Completions ───
@@ -1582,62 +1504,6 @@ mod tests {
         let conn = open_db(Some(&db_path)).unwrap();
         let data = db::export_all(&conn).unwrap();
         assert!(!data.todos.is_empty());
-    }
-
-    // ─── Commit handler tests ───
-
-    #[test]
-    fn handler_commit_todo_parses_message() {
-        let (_dir, db_path) = setup_temp_db();
-        let args = CommitArgs {
-            message: "P1 fix login bug #urgent due:tomorrow project:backend".to_string(),
-            r#type: None,
-        };
-        handle_commit(&args, Some(&db_path), false).unwrap();
-
-        let conn = open_db(Some(&db_path)).unwrap();
-        let todos = db::list_todos(&conn, None).unwrap();
-        assert_eq!(todos.len(), 1);
-        assert_eq!(todos[0].title, "fix login bug");
-        assert_eq!(todos[0].priority, Priority::P1);
-        assert_eq!(todos[0].tags, vec!["urgent"]);
-        assert_eq!(todos[0].project.as_deref(), Some("backend"));
-        assert!(todos[0].due_date.is_some());
-    }
-
-    #[test]
-    fn handler_commit_idea() {
-        let (_dir, db_path) = setup_temp_db();
-        let args = CommitArgs {
-            message: "a new idea project:myapp #tag source:web".to_string(),
-            r#type: Some("idea".to_string()),
-        };
-        handle_commit(&args, Some(&db_path), false).unwrap();
-
-        let conn = open_db(Some(&db_path)).unwrap();
-        let ideas = db::list_ideas(&conn, None).unwrap();
-        assert_eq!(ideas.len(), 1);
-        assert_eq!(ideas[0].title, "a new idea");
-        assert_eq!(ideas[0].project.as_deref(), Some("myapp"));
-        assert_eq!(ideas[0].source.as_deref(), Some("web"));
-        assert_eq!(ideas[0].tags, vec!["tag"]);
-    }
-
-    #[test]
-    fn handler_commit_log() {
-        let (_dir, db_path) = setup_temp_db();
-        let args = CommitArgs {
-            message: "worked on feature X project:backend mood:productive".to_string(),
-            r#type: Some("log".to_string()),
-        };
-        handle_commit(&args, Some(&db_path), false).unwrap();
-
-        let conn = open_db(Some(&db_path)).unwrap();
-        let logs = db::list_logs(&conn, None).unwrap();
-        assert_eq!(logs.len(), 1);
-        assert_eq!(logs[0].content, "worked on feature X");
-        assert_eq!(logs[0].project.as_deref(), Some("backend"));
-        assert_eq!(logs[0].mood.as_deref(), Some("productive"));
     }
 
     // ─── Completions handler test ───
