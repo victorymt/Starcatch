@@ -35,11 +35,12 @@ fn parse_tags(tag_opt: Option<&str>) -> Vec<String> {
 
 fn main() {
     let args = Args::parse();
+    let json = args.json;
 
     let result = match &args.command {
-        Some(Commands::Todo(cmd)) => handle_todo(cmd, args.db.as_deref()),
-        Some(Commands::Idea(cmd)) => handle_idea(cmd, args.db.as_deref()),
-        Some(Commands::Log(cmd)) => handle_log(cmd, args.db.as_deref()),
+        Some(Commands::Todo(cmd)) => handle_todo(cmd, args.db.as_deref(), json),
+        Some(Commands::Idea(cmd)) => handle_idea(cmd, args.db.as_deref(), json),
+        Some(Commands::Log(cmd)) => handle_log(cmd, args.db.as_deref(), json),
         Some(Commands::Pipe(cmd)) => handle_pipe(cmd, args.db.as_deref()),
         None => {
             eprintln!("🌙 Starcatch 星捕 — No command given.");
@@ -155,12 +156,12 @@ fn parse_natural_date(text: &str) -> Option<String> {
 
 // ─── Todo ───
 
-fn handle_todo(cmd: &TodoCommands, db_path: Option<&str>) -> rusqlite::Result<()> {
+fn handle_todo(cmd: &TodoCommands, db_path: Option<&str>, json: bool) -> rusqlite::Result<()> {
     let conn = open_db(db_path)?;
 
     match cmd {
         TodoCommands::Add(args) => handle_todo_add(args, &conn),
-        TodoCommands::List(args) => handle_todo_list(args, &conn),
+        TodoCommands::List(args) => handle_todo_list(args, &conn, json),
         TodoCommands::Done { id } => {
             db::update_todo_status(&conn, id, &TodoStatus::Done)?;
             println!("✅ Todo marked as done: {}", id);
@@ -203,7 +204,7 @@ fn handle_todo_add(args: &TodoAddArgs, conn: &rusqlite::Connection) -> rusqlite:
     Ok(())
 }
 
-fn handle_todo_list(args: &TodoListArgs, conn: &rusqlite::Connection) -> rusqlite::Result<()> {
+fn handle_todo_list(args: &TodoListArgs, conn: &rusqlite::Connection, json: bool) -> rusqlite::Result<()> {
     let show_statuses = list_visible_statuses(args);
     let mut todos = fetch_todos_by_statuses(conn, &show_statuses)?;
     todos.sort_by_key(|t| (t.priority.order(), std::cmp::Reverse(t.created_at)));
@@ -214,7 +215,11 @@ fn handle_todo_list(args: &TodoListArgs, conn: &rusqlite::Connection) -> rusqlit
         todos.iter().collect()
     };
 
-    render_todo_list(&filtered);
+    if json {
+        println!("{}", serde_json::to_string_pretty(&filtered).unwrap_or_default());
+    } else {
+        render_todo_list(&filtered);
+    }
     Ok(())
 }
 
@@ -285,7 +290,7 @@ fn render_todo_list(todos: &[&Todo]) {
 
 // ─── Idea ───
 
-fn handle_idea(cmd: &IdeaCommands, db_path: Option<&str>) -> rusqlite::Result<()> {
+fn handle_idea(cmd: &IdeaCommands, db_path: Option<&str>, json: bool) -> rusqlite::Result<()> {
     let conn = open_db(db_path)?;
 
     match cmd {
@@ -301,12 +306,18 @@ fn handle_idea(cmd: &IdeaCommands, db_path: Option<&str>) -> rusqlite::Result<()
             };
 
             db::insert_idea(&conn, &idea)?;
-            println!("💡 Idea captured: {}", idea.title);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&idea).unwrap_or_default());
+            } else {
+                println!("💡 Idea captured: {}", idea.title);
+            }
         }
 
         IdeaCommands::List(args) => {
             let ideas = db::list_ideas(&conn, Some(args.days))?;
-            if ideas.is_empty() {
+            if json {
+                println!("{}", serde_json::to_string_pretty(&ideas).unwrap_or_default());
+            } else if ideas.is_empty() {
                 println!("💭 No ideas in the last {} days.", args.days);
             } else {
                 println!("💭 Ideas (last {} days):", args.days);
@@ -331,7 +342,7 @@ fn handle_idea(cmd: &IdeaCommands, db_path: Option<&str>) -> rusqlite::Result<()
 
 // ─── Log ───
 
-fn handle_log(cmd: &LogCommands, db_path: Option<&str>) -> rusqlite::Result<()> {
+fn handle_log(cmd: &LogCommands, db_path: Option<&str>, json: bool) -> rusqlite::Result<()> {
     let conn = open_db(db_path)?;
 
     match cmd {
@@ -346,13 +357,19 @@ fn handle_log(cmd: &LogCommands, db_path: Option<&str>) -> rusqlite::Result<()> 
             };
 
             db::insert_log(&conn, &log)?;
-            let mood_icon = log.mood.as_deref().unwrap_or("");
-            println!("📓 Log saved {}{}", mood_icon, if !mood_icon.is_empty() { " " } else { "" });
+            if json {
+                println!("{}", serde_json::to_string_pretty(&log).unwrap_or_default());
+            } else {
+                let mood_icon = log.mood.as_deref().unwrap_or("");
+                println!("📓 Log saved {}{}", mood_icon, if !mood_icon.is_empty() { " " } else { "" });
+            }
         }
 
         LogCommands::List(args) => {
             let logs = db::list_logs(&conn, Some(args.days))?;
-            if logs.is_empty() {
+            if json {
+                println!("{}", serde_json::to_string_pretty(&logs).unwrap_or_default());
+            } else if logs.is_empty() {
                 println!("📓 No logs in the last {} days.", args.days);
             } else {
                 println!("📓 Logs (last {} days):", args.days);

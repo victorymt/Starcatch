@@ -10,6 +10,10 @@ pub struct Args {
     /// Database path (default: ~/.local/share/starcatch/starcatch.db)
     #[arg(short = 'D', long, global = true)]
     pub db: Option<String>,
+
+    /// Output as formatted JSON instead of human-readable text
+    #[arg(long, global = true)]
+    pub json: bool,
 }
 
 #[derive(Subcommand, Debug)]
