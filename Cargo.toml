@@ -11,6 +11,7 @@ clap = { version = "4", features = ["derive"] }
 
 # Database
 rusqlite = { version = "0.34", features = ["bundled"] }
+sqlite-migrate = { path = "../sqlite-migrate" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

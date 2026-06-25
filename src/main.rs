@@ -171,12 +171,14 @@ struct ParsedPipeIdea {
     title: String,
     source: Option<String>,
     tags: Vec<String>,
+    project: Option<String>,
 }
 
-/// Parse pipe input for idea: extracts #tags and source: — the rest becomes title.
+/// Parse pipe input for idea: extracts #tags, source:, project: — the rest becomes title.
 fn parse_pipe_idea(raw: &str) -> ParsedPipeIdea {
     let mut source = None;
     let mut tags: Vec<String> = Vec::new();
+    let mut project = None;
     let mut title_parts: Vec<&str> = Vec::new();
 
     let tokens: Vec<&str> = raw.split_whitespace().collect();
@@ -191,6 +193,14 @@ fn parse_pipe_idea(raw: &str) -> ParsedPipeIdea {
                 i += 1;
                 source = Some(tokens[i].to_string());
             }
+        } else if let Some(val) = token.strip_prefix("project:").or_else(|| token.strip_prefix("project：")) {
+            let val = val.trim();
+            if !val.is_empty() {
+                project = Some(val.to_string());
+            } else if i + 1 < tokens.len() {
+                i += 1;
+                project = Some(tokens[i].to_string());
+            }
         } else if let Some(tag) = token.strip_prefix('#') {
             let tag = trim_trailing_punct(tag.trim());
             if !tag.is_empty() {
@@ -203,19 +213,21 @@ fn parse_pipe_idea(raw: &str) -> ParsedPipeIdea {
     }
 
     let title = if title_parts.is_empty() { raw.to_string() } else { title_parts.join(" ") };
-    ParsedPipeIdea { title, source, tags }
+    ParsedPipeIdea { title, source, tags, project }
 }
 
 struct ParsedPipeLog {
     content: String,
     mood: Option<String>,
     tags: Vec<String>,
+    project: Option<String>,
 }
 
-/// Parse pipe input for log: extracts #tags and mood: — the rest becomes content.
+/// Parse pipe input for log: extracts #tags, mood:, project: — the rest becomes content.
 fn parse_pipe_log(raw: &str) -> ParsedPipeLog {
     let mut mood = None;
     let mut tags: Vec<String> = Vec::new();
+    let mut project = None;
     let mut content_parts: Vec<&str> = Vec::new();
 
     let tokens: Vec<&str> = raw.split_whitespace().collect();
@@ -230,6 +242,14 @@ fn parse_pipe_log(raw: &str) -> ParsedPipeLog {
                 i += 1;
                 mood = Some(tokens[i].to_string());
             }
+        } else if let Some(val) = token.strip_prefix("project:").or_else(|| token.strip_prefix("project：")) {
+            let val = val.trim();
+            if !val.is_empty() {
+                project = Some(val.to_string());
+            } else if i + 1 < tokens.len() {
+                i += 1;
+                project = Some(tokens[i].to_string());
+            }
         } else if let Some(tag) = token.strip_prefix('#') {
             let tag = trim_trailing_punct(tag.trim());
             if !tag.is_empty() {
@@ -242,7 +262,7 @@ fn parse_pipe_log(raw: &str) -> ParsedPipeLog {
     }
 
     let content = if content_parts.is_empty() { raw.to_string() } else { content_parts.join(" ") };
-    ParsedPipeLog { content, mood, tags }
+    ParsedPipeLog { content, mood, tags, project }
 }
 
 // ─── Natural date parser ───
@@ -581,6 +601,7 @@ fn handle_idea(cmd: &IdeaCommands, db_path: Option<&str>, json: bool) -> rusqlit
                 source: args.source.clone(),
                 context_window: None,
                 tags: parse_tags(args.tag.as_deref()),
+                project: args.project.clone(),
                 created_at: Utc::now(),
             };
 
@@ -596,11 +617,19 @@ fn handle_idea(cmd: &IdeaCommands, db_path: Option<&str>, json: bool) -> rusqlit
         IdeaCommands::List(args) => {
             let ideas = db::list_ideas(&conn, Some(args.days))?;
 
-            let filtered: Vec<&Idea> = if let Some(ref tag) = args.tag {
-                ideas.iter().filter(|i| i.tags.iter().any(|t| t == tag)).collect()
-            } else {
-                ideas.iter().collect()
-            };
+            let filtered: Vec<&Idea> = ideas.iter().filter(|i| {
+                if let Some(ref tag) = args.tag {
+                    if !i.tags.iter().any(|t| t == tag) {
+                        return false;
+                    }
+                }
+                if let Some(ref proj) = args.project {
+                    if i.project.as_deref() != Some(proj.as_str()) {
+                        return false;
+                    }
+                }
+                true
+            }).collect();
 
             if json {
                 println!("{}", serde_json::to_string_pretty(&filtered).unwrap_or_default());
@@ -612,11 +641,13 @@ fn handle_idea(cmd: &IdeaCommands, db_path: Option<&str>, json: bool) -> rusqlit
                     let source = idea.source.as_deref().unwrap_or("?");
                     let tags = idea.tags.join(", ");
                     let tag_str = if tags.is_empty() { "".to_string() } else { format!(" [{}]", tags) };
+                    let proj_str = idea.project.as_deref().map(|p| format!(" | project: {}", p)).unwrap_or_default();
                     println!(
-                        "  💡 {} {}{} | from: {}",
+                        "  💡 {} {}{}{} | from: {}",
                         idea.created_at.format("%m-%d %H:%M"),
                         idea.title,
                         tag_str,
+                        proj_str,
                         source,
                     );
                 }
@@ -630,6 +661,7 @@ fn handle_idea(cmd: &IdeaCommands, db_path: Option<&str>, json: bool) -> rusqlit
                 content: args.content.clone(),
                 source: args.source.clone(),
                 tags: args.tag.as_deref().map(|s| parse_tags(Some(s))),
+                project: args.project.clone(),
             };
             db::update_idea(&conn, &args.id, &update)?;
             if json {
@@ -651,6 +683,7 @@ fn handle_idea(cmd: &IdeaCommands, db_path: Option<&str>, json: bool) -> rusqlit
                 println!("   Content: {}", idea.content.as_deref().unwrap_or("-"));
                 println!("   Source:  {}", idea.source.as_deref().unwrap_or("-"));
                 println!("   Tags:    {}", if idea.tags.is_empty() { "-".to_string() } else { idea.tags.join(", ") });
+                println!("   Project: {}", idea.project.as_deref().unwrap_or("-"));
                 println!("   Created: {}", idea.created_at.format("%Y-%m-%d %H:%M"));
             }
             Ok(())
@@ -678,6 +711,7 @@ fn handle_log(cmd: &LogCommands, db_path: Option<&str>, json: bool) -> rusqlite:
                 content: args.content.clone(),
                 mood: args.mood.clone(),
                 tags: parse_tags(args.tag.as_deref()),
+                project: args.project.clone(),
                 created_at: Utc::now(),
                 updated_at: None,
             };
@@ -706,6 +740,11 @@ fn handle_log(cmd: &LogCommands, db_path: Option<&str>, json: bool) -> rusqlite:
                         return false;
                     }
                 }
+                if let Some(ref proj) = args.project {
+                    if l.project.as_deref() != Some(proj.as_str()) {
+                        return false;
+                    }
+                }
                 true
             }).collect();
 
@@ -719,7 +758,8 @@ fn handle_log(cmd: &LogCommands, db_path: Option<&str>, json: bool) -> rusqlite:
                     let mood = log.mood.as_deref().unwrap_or("");
                     let tags = log.tags.join(", ");
                     let tag_str = if tags.is_empty() { "".to_string() } else { format!(" [{}]", tags) };
-                    println!("  📝 [{}] {} {}{}", log.created_at.format("%m-%d %H:%M"), mood, log.content, tag_str);
+                    let proj_str = log.project.as_deref().map(|p| format!(" | project: {}", p)).unwrap_or_default();
+                    println!("  📝 [{}] {} {}{}{}", log.created_at.format("%m-%d %H:%M"), mood, log.content, tag_str, proj_str);
                 }
             }
             Ok(())
@@ -730,6 +770,7 @@ fn handle_log(cmd: &LogCommands, db_path: Option<&str>, json: bool) -> rusqlite:
                 content: args.content.clone(),
                 mood: args.mood.clone(),
                 tags: args.tag.as_deref().map(|s| parse_tags(Some(s))),
+                project: args.project.clone(),
             };
             db::update_log(&conn, &args.id, &update)?;
             if json {
@@ -750,6 +791,7 @@ fn handle_log(cmd: &LogCommands, db_path: Option<&str>, json: bool) -> rusqlite:
                 println!("   Content: {}", log.content);
                 println!("   Mood:    {}", log.mood.as_deref().unwrap_or("-"));
                 println!("   Tags:    {}", if log.tags.is_empty() { "-".to_string() } else { log.tags.join(", ") });
+                println!("   Project: {}", log.project.as_deref().unwrap_or("-"));
                 println!("   Created: {}", log.created_at.format("%Y-%m-%d %H:%M"));
                 if let Some(up) = log.updated_at {
                     println!("   Updated: {}", up.format("%Y-%m-%d %H:%M"));
@@ -811,6 +853,7 @@ fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> rusqlite::Result<()> {
                 source: parsed.source,
                 context_window: None,
                 tags: parsed.tags,
+                project: parsed.project,
                 created_at: Utc::now(),
             };
             db::insert_idea(&conn, &idea)?;
@@ -823,6 +866,7 @@ fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> rusqlite::Result<()> {
                 content: parsed.content,
                 mood: parsed.mood,
                 tags: parsed.tags,
+                project: parsed.project,
                 created_at: Utc::now(),
                 updated_at: None,
             };
@@ -947,7 +991,17 @@ fn handle_commit(args: &CommitArgs, db_path: Option<&str>, json: bool) -> rusqli
             }
         }
         "idea" => {
-            let idea = Idea::new(msg.to_string());
+            let parsed = parse_pipe_idea(msg);
+            let idea = Idea {
+                id: uuid::Uuid::new_v4().to_string(),
+                title: parsed.title,
+                content: None,
+                source: parsed.source,
+                context_window: None,
+                tags: parsed.tags,
+                project: parsed.project,
+                created_at: Utc::now(),
+            };
             db::insert_idea(&conn, &idea)?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&idea).unwrap_or_default());
@@ -956,7 +1010,16 @@ fn handle_commit(args: &CommitArgs, db_path: Option<&str>, json: bool) -> rusqli
             }
         }
         "log" => {
-            let log = Log::new(msg.to_string());
+            let parsed = parse_pipe_log(msg);
+            let log = Log {
+                id: uuid::Uuid::new_v4().to_string(),
+                content: parsed.content,
+                mood: parsed.mood,
+                tags: parsed.tags,
+                project: parsed.project,
+                created_at: Utc::now(),
+                updated_at: None,
+            };
             db::insert_log(&conn, &log)?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&log).unwrap_or_default());
@@ -1318,6 +1381,7 @@ mod tests {
             source: Some("src".to_string()),
             context_window: None,
             tags: vec!["old".to_string()],
+            project: None,
             created_at: Utc::now(),
         };
         db::insert_idea(&conn, &idea).unwrap();
@@ -1328,6 +1392,7 @@ mod tests {
             content: None,
             source: None,
             tags: Some(vec!["new".to_string()]),
+            ..Default::default()
         };
         db::update_idea(&conn, &idea.id, &update).unwrap();
         let fetched = db::get_idea(&conn, &idea.id).unwrap();
@@ -1348,6 +1413,7 @@ mod tests {
             title: "tagged".to_string(),
             content: None, source: None, context_window: None,
             tags: vec!["important".to_string()],
+            project: Some("backend".to_string()),
             created_at: Utc::now(),
         };
         let idea2 = Idea {
@@ -1355,6 +1421,7 @@ mod tests {
             title: "other".to_string(),
             content: None, source: None, context_window: None,
             tags: vec![],
+            project: None,
             created_at: Utc::now(),
         };
         db::insert_idea(&conn, &idea1).unwrap();
@@ -1377,6 +1444,7 @@ mod tests {
             content: "original".to_string(),
             mood: Some("happy".to_string()),
             tags: vec!["old".to_string()],
+            project: None,
             created_at: Utc::now(),
             updated_at: None,
         };
@@ -1387,6 +1455,7 @@ mod tests {
             content: Some("updated".to_string()),
             mood: Some("productive".to_string()),
             tags: None,
+            ..Default::default()
         };
         db::update_log(&conn, &log.id, &update).unwrap();
         let fetched = db::get_log(&conn, &log.id).unwrap();
@@ -1407,6 +1476,7 @@ mod tests {
             content: "log1".to_string(),
             mood: Some("happy".to_string()),
             tags: vec!["work".to_string()],
+            project: Some("backend".to_string()),
             created_at: Utc::now(),
             updated_at: None,
         };
@@ -1415,6 +1485,7 @@ mod tests {
             content: "log2".to_string(),
             mood: Some("sad".to_string()),
             tags: vec![],
+            project: None,
             created_at: Utc::now(),
             updated_at: None,
         };
@@ -1457,6 +1528,7 @@ mod tests {
             content: Some("deploy strategy".to_string()),
             source: None, context_window: None,
             tags: vec![],
+            project: None,
             created_at: Utc::now(),
         };
         let log = Log {
@@ -1464,6 +1536,7 @@ mod tests {
             content: "deployed to prod".to_string(),
             mood: None,
             tags: vec![],
+            project: None,
             created_at: Utc::now(),
             updated_at: None,
         };
@@ -1536,7 +1609,7 @@ mod tests {
     fn handler_commit_idea() {
         let (_dir, db_path) = setup_temp_db();
         let args = CommitArgs {
-            message: "a new idea".to_string(),
+            message: "a new idea project:myapp #tag source:web".to_string(),
             r#type: Some("idea".to_string()),
         };
         handle_commit(&args, Some(&db_path), false).unwrap();
@@ -1545,13 +1618,16 @@ mod tests {
         let ideas = db::list_ideas(&conn, None).unwrap();
         assert_eq!(ideas.len(), 1);
         assert_eq!(ideas[0].title, "a new idea");
+        assert_eq!(ideas[0].project.as_deref(), Some("myapp"));
+        assert_eq!(ideas[0].source.as_deref(), Some("web"));
+        assert_eq!(ideas[0].tags, vec!["tag"]);
     }
 
     #[test]
     fn handler_commit_log() {
         let (_dir, db_path) = setup_temp_db();
         let args = CommitArgs {
-            message: "worked on feature X".to_string(),
+            message: "worked on feature X project:backend mood:productive".to_string(),
             r#type: Some("log".to_string()),
         };
         handle_commit(&args, Some(&db_path), false).unwrap();
@@ -1560,6 +1636,8 @@ mod tests {
         let logs = db::list_logs(&conn, None).unwrap();
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].content, "worked on feature X");
+        assert_eq!(logs[0].project.as_deref(), Some("backend"));
+        assert_eq!(logs[0].mood.as_deref(), Some("productive"));
     }
 
     // ─── Completions handler test ───
@@ -1653,10 +1731,11 @@ mod tests {
 
     #[test]
     fn parse_pipe_idea_all_features() {
-        let p = parse_pipe_idea("AI will replace #tech source:twitter");
+        let p = parse_pipe_idea("AI will replace #tech source:twitter project:myapp");
         assert_eq!(p.title, "AI will replace");
         assert_eq!(p.source.as_deref(), Some("twitter"));
         assert_eq!(p.tags, vec!["tech"]);
+        assert_eq!(p.project.as_deref(), Some("myapp"));
     }
 
     #[test]
@@ -1692,10 +1771,11 @@ mod tests {
 
     #[test]
     fn parse_pipe_log_all_features() {
-        let p = parse_pipe_log("shipped feature #dev mood:excited");
+        let p = parse_pipe_log("shipped feature #dev mood:excited project:backend");
         assert_eq!(p.content, "shipped feature");
         assert_eq!(p.mood.as_deref(), Some("excited"));
         assert_eq!(p.tags, vec!["dev"]);
+        assert_eq!(p.project.as_deref(), Some("backend"));
     }
 
     #[test]
@@ -1703,5 +1783,213 @@ mod tests {
         let p = parse_pipe_log("long day mood: tired");
         assert_eq!(p.content, "long day");
         assert_eq!(p.mood.as_deref(), Some("tired"));
+    }
+
+    // ─── Pipe handler integration tests ───
+
+    /// Simulate `echo "P0 fix it #urgent due:tomorrow project:api" | starcatch pipe todo`
+    #[test]
+    fn handler_pipe_todo_parses_and_inserts() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+
+        let parsed = parse_pipe_todo("P0 fix it #urgent due:tomorrow project:api");
+        let todo = Todo {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: parsed.title,
+            description: None,
+            priority: parsed.priority,
+            status: TodoStatus::Pending,
+            due_date: parsed.due_date,
+            tags: parsed.tags,
+            project: parsed.project,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        db::insert_todo(&conn, &todo).unwrap();
+
+        let fetched = db::get_todo(&conn, &todo.id).unwrap();
+        assert_eq!(fetched.title, "fix it");
+        assert_eq!(fetched.priority, Priority::P0);
+        assert_eq!(fetched.tags, vec!["urgent"]);
+        assert_eq!(fetched.project.as_deref(), Some("api"));
+        assert!(fetched.due_date.is_some());
+    }
+
+    /// Simulate `echo "AI idea #tech source:twitter project:myapp" | starcatch pipe idea`
+    #[test]
+    fn handler_pipe_idea_parses_and_inserts() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+
+        let parsed = parse_pipe_idea("AI idea #tech source:twitter project:myapp");
+        let idea = Idea {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: parsed.title,
+            content: None,
+            source: parsed.source,
+            context_window: None,
+            tags: parsed.tags,
+            project: parsed.project,
+            created_at: Utc::now(),
+        };
+        db::insert_idea(&conn, &idea).unwrap();
+
+        let fetched = db::get_idea(&conn, &idea.id).unwrap();
+        assert_eq!(fetched.title, "AI idea");
+        assert_eq!(fetched.tags, vec!["tech"]);
+        assert_eq!(fetched.source.as_deref(), Some("twitter"));
+        assert_eq!(fetched.project.as_deref(), Some("myapp"));
+    }
+
+    /// Simulate `echo "shipped v2 mood:happy project:backend" | starcatch pipe log`
+    #[test]
+    fn handler_pipe_log_parses_and_inserts() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+
+        let parsed = parse_pipe_log("shipped v2 mood:happy project:backend");
+        let log = Log {
+            id: uuid::Uuid::new_v4().to_string(),
+            content: parsed.content,
+            mood: parsed.mood,
+            tags: parsed.tags,
+            project: parsed.project,
+            created_at: Utc::now(),
+            updated_at: None,
+        };
+        db::insert_log(&conn, &log).unwrap();
+
+        let fetched = db::get_log(&conn, &log.id).unwrap();
+        assert_eq!(fetched.content, "shipped v2");
+        assert_eq!(fetched.mood.as_deref(), Some("happy"));
+        assert_eq!(fetched.project.as_deref(), Some("backend"));
+    }
+
+    /// Pipe todo with plain text only — no keywords
+    #[test]
+    fn handler_pipe_todo_plain_text() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+
+        let parsed = parse_pipe_todo("just a simple task");
+        let todo = Todo {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: parsed.title,
+            description: None,
+            priority: parsed.priority,
+            status: TodoStatus::Pending,
+            due_date: parsed.due_date,
+            tags: parsed.tags,
+            project: parsed.project,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        db::insert_todo(&conn, &todo).unwrap();
+
+        let fetched = db::get_todo(&conn, &todo.id).unwrap();
+        assert_eq!(fetched.title, "just a simple task");
+        assert_eq!(fetched.priority, Priority::P2); // default
+        assert!(fetched.tags.is_empty());
+        assert!(fetched.project.is_none());
+        assert!(fetched.due_date.is_none());
+    }
+
+    /// Pipe idea with only a title — no extra metadata
+    #[test]
+    fn handler_pipe_idea_plain_title() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+
+        let parsed = parse_pipe_idea("a plain idea");
+        let idea = Idea {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: parsed.title,
+            content: None,
+            source: None,
+            context_window: None,
+            tags: vec![],
+            project: None,
+            created_at: Utc::now(),
+        };
+        db::insert_idea(&conn, &idea).unwrap();
+
+        let fetched = db::get_idea(&conn, &idea.id).unwrap();
+        assert_eq!(fetched.title, "a plain idea");
+        assert!(fetched.source.is_none());
+        assert!(fetched.tags.is_empty());
+        assert!(fetched.project.is_none());
+    }
+
+    /// Pipe log with only content — no mood or project
+    #[test]
+    fn handler_pipe_log_plain_content() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+
+        let parsed = parse_pipe_log("just a work log");
+        let log = Log {
+            id: uuid::Uuid::new_v4().to_string(),
+            content: parsed.content,
+            mood: None,
+            tags: vec![],
+            project: None,
+            created_at: Utc::now(),
+            updated_at: None,
+        };
+        db::insert_log(&conn, &log).unwrap();
+
+        let fetched = db::get_log(&conn, &log.id).unwrap();
+        assert_eq!(fetched.content, "just a work log");
+        assert!(fetched.mood.is_none());
+        assert!(fetched.tags.is_empty());
+        assert!(fetched.project.is_none());
+    }
+
+    /// Pipe idea with project: using fullwidth colon (project：myapp)
+    #[test]
+    fn handler_pipe_idea_project_fullwidth_colon() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+
+        let parsed = parse_pipe_idea("good idea project：myapp");
+        let idea = Idea {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: parsed.title,
+            content: None,
+            source: None,
+            context_window: None,
+            tags: parsed.tags,
+            project: parsed.project,
+            created_at: Utc::now(),
+        };
+        db::insert_idea(&conn, &idea).unwrap();
+
+        let fetched = db::get_idea(&conn, &idea.id).unwrap();
+        assert_eq!(fetched.title, "good idea");
+        assert_eq!(fetched.project.as_deref(), Some("myapp"));
+    }
+
+    /// Pipe log with project: separate token
+    #[test]
+    fn handler_pipe_log_project_separate_token() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+
+        let parsed = parse_pipe_log("done stuff project: infra");
+        let log = Log {
+            id: uuid::Uuid::new_v4().to_string(),
+            content: parsed.content,
+            mood: parsed.mood,
+            tags: parsed.tags,
+            project: parsed.project,
+            created_at: Utc::now(),
+            updated_at: None,
+        };
+        db::insert_log(&conn, &log).unwrap();
+
+        let fetched = db::get_log(&conn, &log.id).unwrap();
+        assert_eq!(fetched.content, "done stuff");
+        assert_eq!(fetched.project.as_deref(), Some("infra"));
     }
 }

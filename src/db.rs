@@ -21,6 +21,7 @@ pub struct IdeaUpdate {
     pub content: Option<String>,
     pub source: Option<String>,
     pub tags: Option<Vec<String>>,
+    pub project: Option<String>,
 }
 
 /// Fields that can be updated on a log.
@@ -29,6 +30,7 @@ pub struct LogUpdate {
     pub content: Option<String>,
     pub mood: Option<String>,
     pub tags: Option<Vec<String>>,
+    pub project: Option<String>,
 }
 
 pub fn open(path: &str) -> Result<Connection> {
@@ -37,48 +39,52 @@ pub fn open(path: &str) -> Result<Connection> {
     Ok(conn)
 }
 
+static SCHEMA: sqlite_migrate::Schema = sqlite_migrate::Schema {
+    create_tables: &[
+        "CREATE TABLE IF NOT EXISTS todos (\
+            id          TEXT PRIMARY KEY, \
+            title       TEXT NOT NULL, \
+            description TEXT, \
+            priority    TEXT NOT NULL DEFAULT 'P2', \
+            status      TEXT NOT NULL DEFAULT 'pending', \
+            due_date    TEXT, \
+            tags        TEXT NOT NULL DEFAULT '[]', \
+            project     TEXT, \
+            created_at  TEXT NOT NULL, \
+            updated_at  TEXT NOT NULL \
+        )",
+        "CREATE TABLE IF NOT EXISTS ideas (\
+            id              TEXT PRIMARY KEY, \
+            title           TEXT NOT NULL, \
+            content         TEXT, \
+            source          TEXT, \
+            context_window  TEXT, \
+            tags            TEXT NOT NULL DEFAULT '[]', \
+            project         TEXT, \
+            created_at      TEXT NOT NULL \
+        )",
+        "CREATE TABLE IF NOT EXISTS logs (\
+            id          TEXT PRIMARY KEY, \
+            content     TEXT NOT NULL, \
+            mood        TEXT, \
+            tags        TEXT NOT NULL DEFAULT '[]', \
+            project     TEXT, \
+            created_at  TEXT NOT NULL, \
+            updated_at  TEXT \
+        )",
+        "CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status)",
+        "CREATE INDEX IF NOT EXISTS idx_todos_priority ON todos(priority)",
+        "CREATE INDEX IF NOT EXISTS idx_ideas_created ON ideas(created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_logs_created ON logs(created_at)",
+    ],
+    add_columns: &[
+        ("ideas", "project", "TEXT"),
+        ("logs", "project", "TEXT"),
+    ],
+};
+
 pub fn migrate(conn: &Connection) -> Result<()> {
-    conn.execute_batch(
-        "
-        CREATE TABLE IF NOT EXISTS todos (
-            id          TEXT PRIMARY KEY,
-            title       TEXT NOT NULL,
-            description TEXT,
-            priority    TEXT NOT NULL DEFAULT 'P2',
-            status      TEXT NOT NULL DEFAULT 'pending',
-            due_date    TEXT,
-            tags        TEXT NOT NULL DEFAULT '[]',
-            project     TEXT,
-            created_at  TEXT NOT NULL,
-            updated_at  TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS ideas (
-            id              TEXT PRIMARY KEY,
-            title           TEXT NOT NULL,
-            content         TEXT,
-            source          TEXT,
-            context_window  TEXT,
-            tags            TEXT NOT NULL DEFAULT '[]',
-            created_at      TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS logs (
-            id          TEXT PRIMARY KEY,
-            content     TEXT NOT NULL,
-            mood        TEXT,
-            tags        TEXT NOT NULL DEFAULT '[]',
-            created_at  TEXT NOT NULL,
-            updated_at  TEXT
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status);
-        CREATE INDEX IF NOT EXISTS idx_todos_priority ON todos(priority);
-        CREATE INDEX IF NOT EXISTS idx_ideas_created ON ideas(created_at);
-        CREATE INDEX IF NOT EXISTS idx_logs_created ON logs(created_at);
-        ",
-    )?;
-    Ok(())
+    sqlite_migrate::migrate(conn, &SCHEMA)
 }
 
 // ─── Todo helpers ───
@@ -214,8 +220,8 @@ fn todo_from_row(row: &rusqlite::Row) -> rusqlite::Result<Todo> {
 pub fn insert_idea(conn: &Connection, idea: &Idea) -> Result<()> {
     let tags_json = serde_json::to_string(&idea.tags).unwrap_or_default();
     conn.execute(
-        "INSERT INTO ideas (id, title, content, source, context_window, tags, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO ideas (id, title, content, source, context_window, tags, project, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         rusqlite::params![
             idea.id,
             idea.title,
@@ -223,6 +229,7 @@ pub fn insert_idea(conn: &Connection, idea: &Idea) -> Result<()> {
             idea.source,
             idea.context_window,
             tags_json,
+            idea.project,
             idea.created_at.to_rfc3339(),
         ],
     )?;
@@ -257,13 +264,14 @@ pub fn update_idea(conn: &Connection, id: &str, update: &IdeaUpdate) -> Result<(
         content: update.content.clone().or(existing.content),
         source: update.source.clone().or(existing.source),
         tags: update.tags.clone().unwrap_or(existing.tags),
+        project: update.project.clone().or(existing.project),
         ..existing
     };
 
     let tags_json = serde_json::to_string(&updated.tags).unwrap_or_default();
     conn.execute(
-        "UPDATE ideas SET title=?1, content=?2, source=?3, tags=?4 WHERE id=?5",
-        rusqlite::params![updated.title, updated.content, updated.source, tags_json, id],
+        "UPDATE ideas SET title=?1, content=?2, source=?3, tags=?4, project=?5 WHERE id=?6",
+        rusqlite::params![updated.title, updated.content, updated.source, tags_json, updated.project, id],
     )?;
     Ok(())
 }
@@ -284,6 +292,7 @@ fn idea_from_row(row: &rusqlite::Row) -> rusqlite::Result<Idea> {
         source: row.get("source")?,
         context_window: row.get("context_window")?,
         tags,
+        project: row.get("project")?,
         created_at: row.get::<_, String>("created_at")?.parse().unwrap_or_default(),
     })
 }
@@ -293,13 +302,14 @@ fn idea_from_row(row: &rusqlite::Row) -> rusqlite::Result<Idea> {
 pub fn insert_log(conn: &Connection, log: &Log) -> Result<()> {
     let tags_json = serde_json::to_string(&log.tags).unwrap_or_default();
     conn.execute(
-        "INSERT INTO logs (id, content, mood, tags, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO logs (id, content, mood, tags, project, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         rusqlite::params![
             log.id,
             log.content,
             log.mood,
             tags_json,
+            log.project,
             log.created_at.to_rfc3339(),
             log.updated_at.map(|t| t.to_rfc3339()),
         ],
@@ -335,17 +345,19 @@ pub fn update_log(conn: &Connection, id: &str, update: &LogUpdate) -> Result<()>
         content: update.content.clone().unwrap_or(existing.content),
         mood: update.mood.clone().or(existing.mood),
         tags: update.tags.clone().unwrap_or(existing.tags),
+        project: update.project.clone().or(existing.project),
         updated_at: now,
         ..existing
     };
 
     let tags_json = serde_json::to_string(&updated.tags).unwrap_or_default();
     conn.execute(
-        "UPDATE logs SET content=?1, mood=?2, tags=?3, updated_at=?4 WHERE id=?5",
+        "UPDATE logs SET content=?1, mood=?2, tags=?3, project=?4, updated_at=?5 WHERE id=?6",
         rusqlite::params![
             updated.content,
             updated.mood,
             tags_json,
+            updated.project,
             updated.updated_at.map(|t| t.to_rfc3339()),
             id,
         ],
@@ -369,6 +381,7 @@ fn log_from_row(row: &rusqlite::Row) -> rusqlite::Result<Log> {
         content: row.get("content")?,
         mood: row.get("mood")?,
         tags,
+        project: row.get("project")?,
         created_at: row.get::<_, String>("created_at")?.parse().unwrap_or_default(),
         updated_at: updated.map(|s| s.parse().unwrap_or_default()),
     })
@@ -553,6 +566,7 @@ pub fn export_csv(conn: &Connection) -> Result<String> {
             &item.content.clone().unwrap_or_default(),
             &item.source.clone().unwrap_or_default(),
             &item.tags.join(","),
+            &item.project.clone().unwrap_or_default(),
             &item.created_at.to_rfc3339(),
         ]).ok();
     }
@@ -566,6 +580,7 @@ pub fn export_csv(conn: &Connection) -> Result<String> {
             &l.content,
             &l.mood.clone().unwrap_or_default(),
             &l.tags.join(","),
+            &l.project.clone().unwrap_or_default(),
             &l.created_at.to_rfc3339(),
         ]).ok();
     }
@@ -619,6 +634,7 @@ mod tests {
             source: Some("twitter".to_string()),
             context_window: None,
             tags: vec!["idea-tag".to_string()],
+            project: Some("myproject".to_string()),
             created_at: Utc::now(),
         };
         insert_idea(conn, &idea).unwrap();
@@ -631,6 +647,7 @@ mod tests {
             content: content.to_string(),
             mood: Some("happy".to_string()),
             tags: vec!["log-tag".to_string()],
+            project: Some("myproject".to_string()),
             created_at: Utc::now(),
             updated_at: None,
         };
@@ -775,6 +792,7 @@ mod tests {
         assert_eq!(fetched.content.as_deref(), Some("test content"));
         assert_eq!(fetched.source.as_deref(), Some("twitter"));
         assert_eq!(fetched.tags, vec!["idea-tag"]);
+        assert_eq!(fetched.project.as_deref(), Some("myproject"));
     }
 
     #[test]
@@ -793,6 +811,7 @@ mod tests {
             content: Some("new content".to_string()),
             source: Some("github".to_string()),
             tags: Some(vec!["newtag".to_string()]),
+            project: Some("newproject".to_string()),
         };
         update_idea(&conn, &idea.id, &update).unwrap();
 
@@ -801,6 +820,7 @@ mod tests {
         assert_eq!(fetched.content.as_deref(), Some("new content"));
         assert_eq!(fetched.source.as_deref(), Some("github"));
         assert_eq!(fetched.tags, vec!["newtag"]);
+        assert_eq!(fetched.project.as_deref(), Some("newproject"));
     }
 
     #[test]
@@ -849,6 +869,7 @@ mod tests {
         assert_eq!(fetched.content, "my log");
         assert_eq!(fetched.mood.as_deref(), Some("happy"));
         assert_eq!(fetched.tags, vec!["log-tag"]);
+        assert_eq!(fetched.project.as_deref(), Some("myproject"));
     }
 
     #[test]
@@ -866,6 +887,7 @@ mod tests {
             content: Some("updated content".to_string()),
             mood: Some("productive".to_string()),
             tags: Some(vec!["updated-tag".to_string()]),
+            project: Some("newproject".to_string()),
         };
         update_log(&conn, &log.id, &update).unwrap();
 
@@ -873,6 +895,7 @@ mod tests {
         assert_eq!(fetched.content, "updated content");
         assert_eq!(fetched.mood.as_deref(), Some("productive"));
         assert_eq!(fetched.tags, vec!["updated-tag"]);
+        assert_eq!(fetched.project.as_deref(), Some("newproject"));
         assert!(fetched.updated_at.is_some()); // timestamp set
     }
 

@@ -9,6 +9,7 @@ pub struct Idea {
     pub source: Option<String>,
     pub context_window: Option<String>,
     pub tags: Vec<String>,
+    pub project: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -21,6 +22,7 @@ impl Idea {
             source: None,
             context_window: None,
             tags: vec![],
+            project: None,
             created_at: Utc::now(),
         }
     }

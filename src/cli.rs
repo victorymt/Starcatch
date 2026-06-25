@@ -194,6 +194,10 @@ pub struct IdeaAddArgs {
     /// Tags (comma separated)
     #[arg(short, long)]
     pub tag: Option<String>,
+
+    /// Project name
+    #[arg(short = 'P', long)]
+    pub project: Option<String>,
 }
 
 #[derive(clap::Args, Debug)]
@@ -205,6 +209,10 @@ pub struct IdeaListArgs {
     /// Filter by tag
     #[arg(short, long)]
     pub tag: Option<String>,
+
+    /// Filter by project name
+    #[arg(short = 'P', long)]
+    pub project: Option<String>,
 }
 
 #[derive(clap::Args, Debug)]
@@ -227,6 +235,10 @@ pub struct IdeaEditArgs {
     /// New tags (comma separated, replaces existing)
     #[arg(short, long)]
     pub tag: Option<String>,
+
+    /// New project name
+    #[arg(short = 'P', long)]
+    pub project: Option<String>,
 }
 
 // ─── Log ───
@@ -257,6 +269,10 @@ pub struct LogAddArgs {
     /// Tags (comma separated)
     #[arg(short, long)]
     pub tag: Option<String>,
+
+    /// Project name
+    #[arg(short = 'P', long)]
+    pub project: Option<String>,
 }
 
 #[derive(clap::Args, Debug)]
@@ -272,6 +288,10 @@ pub struct LogListArgs {
     /// Filter by mood
     #[arg(short, long)]
     pub mood: Option<String>,
+
+    /// Filter by project name
+    #[arg(short = 'P', long)]
+    pub project: Option<String>,
 }
 
 #[derive(clap::Args, Debug)]
@@ -290,6 +310,10 @@ pub struct LogEditArgs {
     /// New tags (comma separated, replaces existing)
     #[arg(short, long)]
     pub tag: Option<String>,
+
+    /// New project name
+    #[arg(short = 'P', long)]
+    pub project: Option<String>,
 }
 
 // ─── Pipe ───

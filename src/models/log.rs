@@ -7,6 +7,7 @@ pub struct Log {
     pub content: String,
     pub mood: Option<String>,
     pub tags: Vec<String>,
+    pub project: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: Option<DateTime<Utc>>,
 }
@@ -18,6 +19,7 @@ impl Log {
             content,
             mood: None,
             tags: vec![],
+            project: None,
             created_at: Utc::now(),
             updated_at: None,
         }
