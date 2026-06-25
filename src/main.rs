@@ -167,6 +167,84 @@ fn parse_pipe_todo(raw: &str) -> ParsedPipeTodo {
     ParsedPipeTodo { title, priority, due_date, tags, project }
 }
 
+struct ParsedPipeIdea {
+    title: String,
+    source: Option<String>,
+    tags: Vec<String>,
+}
+
+/// Parse pipe input for idea: extracts #tags and source: — the rest becomes title.
+fn parse_pipe_idea(raw: &str) -> ParsedPipeIdea {
+    let mut source = None;
+    let mut tags: Vec<String> = Vec::new();
+    let mut title_parts: Vec<&str> = Vec::new();
+
+    let tokens: Vec<&str> = raw.split_whitespace().collect();
+    let mut i = 0;
+    while i < tokens.len() {
+        let token = tokens[i];
+        if let Some(val) = token.strip_prefix("source:").or_else(|| token.strip_prefix("source：")) {
+            let val = val.trim();
+            if !val.is_empty() {
+                source = Some(val.to_string());
+            } else if i + 1 < tokens.len() {
+                i += 1;
+                source = Some(tokens[i].to_string());
+            }
+        } else if let Some(tag) = token.strip_prefix('#') {
+            let tag = trim_trailing_punct(tag.trim());
+            if !tag.is_empty() {
+                tags.push(tag.to_string());
+            }
+        } else {
+            title_parts.push(token);
+        }
+        i += 1;
+    }
+
+    let title = if title_parts.is_empty() { raw.to_string() } else { title_parts.join(" ") };
+    ParsedPipeIdea { title, source, tags }
+}
+
+struct ParsedPipeLog {
+    content: String,
+    mood: Option<String>,
+    tags: Vec<String>,
+}
+
+/// Parse pipe input for log: extracts #tags and mood: — the rest becomes content.
+fn parse_pipe_log(raw: &str) -> ParsedPipeLog {
+    let mut mood = None;
+    let mut tags: Vec<String> = Vec::new();
+    let mut content_parts: Vec<&str> = Vec::new();
+
+    let tokens: Vec<&str> = raw.split_whitespace().collect();
+    let mut i = 0;
+    while i < tokens.len() {
+        let token = tokens[i];
+        if let Some(val) = token.strip_prefix("mood:").or_else(|| token.strip_prefix("mood：")) {
+            let val = val.trim();
+            if !val.is_empty() {
+                mood = Some(val.to_string());
+            } else if i + 1 < tokens.len() {
+                i += 1;
+                mood = Some(tokens[i].to_string());
+            }
+        } else if let Some(tag) = token.strip_prefix('#') {
+            let tag = trim_trailing_punct(tag.trim());
+            if !tag.is_empty() {
+                tags.push(tag.to_string());
+            }
+        } else {
+            content_parts.push(token);
+        }
+        i += 1;
+    }
+
+    let content = if content_parts.is_empty() { raw.to_string() } else { content_parts.join(" ") };
+    ParsedPipeLog { content, mood, tags }
+}
+
 // ─── Natural date parser ───
 
 fn parse_natural_date(text: &str) -> Option<String> {
@@ -725,14 +803,31 @@ fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> rusqlite::Result<()> {
             println!("✅ Todo (from pipe): {} {}", todo.priority.icon(), todo.title);
         }
         "idea" => {
-            let idea = Idea::new(input);
+            let parsed = parse_pipe_idea(&input);
+            let idea = Idea {
+                id: uuid::Uuid::new_v4().to_string(),
+                title: parsed.title,
+                content: None,
+                source: parsed.source,
+                context_window: None,
+                tags: parsed.tags,
+                created_at: Utc::now(),
+            };
             db::insert_idea(&conn, &idea)?;
             println!("💡 Idea (from pipe): {}", idea.title);
         }
         "log" => {
-            let log = Log::new(input);
+            let parsed = parse_pipe_log(&input);
+            let log = Log {
+                id: uuid::Uuid::new_v4().to_string(),
+                content: parsed.content,
+                mood: parsed.mood,
+                tags: parsed.tags,
+                created_at: Utc::now(),
+                updated_at: None,
+            };
             db::insert_log(&conn, &log)?;
-            println!("📓 Log (from pipe): {}", log.content);
+            println!("📓 Log (from pipe)");
         }
         other => {
             eprintln!("⚠️  Unknown pipe type: {}. Use: todo, idea, log", other);
@@ -1530,5 +1625,83 @@ mod tests {
     #[test]
     fn parse_natural_date_unknown_returns_none() {
         assert_eq!(parse_natural_date("blarg"), None);
+    }
+
+    // ─── Pipe idea parser tests ───
+
+    #[test]
+    fn parse_pipe_idea_plain() {
+        let p = parse_pipe_idea("AI will replace programmers");
+        assert_eq!(p.title, "AI will replace programmers");
+        assert!(p.source.is_none());
+        assert!(p.tags.is_empty());
+    }
+
+    #[test]
+    fn parse_pipe_idea_with_source() {
+        let p = parse_pipe_idea("AI thoughts source:twitter");
+        assert_eq!(p.title, "AI thoughts");
+        assert_eq!(p.source.as_deref(), Some("twitter"));
+    }
+
+    #[test]
+    fn parse_pipe_idea_with_tags() {
+        let p = parse_pipe_idea("AI thoughts #tech #future");
+        assert_eq!(p.title, "AI thoughts");
+        assert_eq!(p.tags, vec!["tech", "future"]);
+    }
+
+    #[test]
+    fn parse_pipe_idea_all_features() {
+        let p = parse_pipe_idea("AI will replace #tech source:twitter");
+        assert_eq!(p.title, "AI will replace");
+        assert_eq!(p.source.as_deref(), Some("twitter"));
+        assert_eq!(p.tags, vec!["tech"]);
+    }
+
+    #[test]
+    fn parse_pipe_idea_source_separate_token() {
+        let p = parse_pipe_idea("cool idea source: github");
+        assert_eq!(p.title, "cool idea");
+        assert_eq!(p.source.as_deref(), Some("github"));
+    }
+
+    // ─── Pipe log parser tests ───
+
+    #[test]
+    fn parse_pipe_log_plain() {
+        let p = parse_pipe_log("worked on feature X");
+        assert_eq!(p.content, "worked on feature X");
+        assert!(p.mood.is_none());
+        assert!(p.tags.is_empty());
+    }
+
+    #[test]
+    fn parse_pipe_log_with_mood() {
+        let p = parse_pipe_log("shipped v2 mood:happy");
+        assert_eq!(p.content, "shipped v2");
+        assert_eq!(p.mood.as_deref(), Some("happy"));
+    }
+
+    #[test]
+    fn parse_pipe_log_with_tags() {
+        let p = parse_pipe_log("debugged all day #dev #bug");
+        assert_eq!(p.content, "debugged all day");
+        assert_eq!(p.tags, vec!["dev", "bug"]);
+    }
+
+    #[test]
+    fn parse_pipe_log_all_features() {
+        let p = parse_pipe_log("shipped feature #dev mood:excited");
+        assert_eq!(p.content, "shipped feature");
+        assert_eq!(p.mood.as_deref(), Some("excited"));
+        assert_eq!(p.tags, vec!["dev"]);
+    }
+
+    #[test]
+    fn parse_pipe_log_mood_separate_token() {
+        let p = parse_pipe_log("long day mood: tired");
+        assert_eq!(p.content, "long day");
+        assert_eq!(p.mood.as_deref(), Some("tired"));
     }
 }
