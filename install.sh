@@ -64,6 +64,15 @@ else
     echo "[3/3] Qt GUI skipped (set INSTALL_GUI=1 to build it)"
 fi
 
+# ── TUI (optional) ───────────────────────────────────────────────────
+if [ "${INSTALL_TUI:-0}" = "1" ]; then
+    echo ""
+    echo "[+] Building TUI…"
+    cargo build --release -p starcatch-tui
+    cp "target/release/starcatch-tui" "${INSTALL_DIR}/starcatch-tui"
+    echo "       → ${INSTALL_DIR}/starcatch-tui"
+fi
+
 # ── Shell completions (optional) ─────────────────────────────────────
 if [ "${INSTALL_COMPLETIONS:-0}" = "1" ]; then
     echo ""

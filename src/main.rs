@@ -1,6 +1,4 @@
 mod cli;
-mod db;
-mod models;
 
 use std::io::Read;
 use std::sync::LazyLock;
@@ -10,8 +8,8 @@ use clap::Parser;
 use regex::Regex;
 
 use cli::*;
-use db::{IdeaUpdate, LogUpdate, TodoUpdate};
-use models::*;
+use starcatch_core::{IdeaUpdate, LogUpdate, TodoUpdate};
+use starcatch_core::*;
 
 fn default_db_path() -> String {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());

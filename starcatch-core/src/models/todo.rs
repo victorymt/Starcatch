@@ -15,10 +15,11 @@ pub struct Todo {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum Priority {
     P0, // 🔴 紧急
     P1, // 🟡 重要
+    #[default]
     P2, // 🟢 一般
     P3, // ⚪ 低优
 }

@@ -1,0 +1,25 @@
+[package]
+name = "starcatch-core"
+version = "0.1.0"
+edition = "2024"
+description = "Shared core library for Starcatch — data models and database"
+
+[dependencies]
+# Database
+rusqlite = { version = "0.34", features = ["bundled"] }
+sqlite-migrate = { path = "../../sqlite-migrate" }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Date/Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1", features = ["v4"] }
+
+# CSV
+csv = "1"
+
+[dev-dependencies]

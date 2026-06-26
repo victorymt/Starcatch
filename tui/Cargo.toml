@@ -1,0 +1,19 @@
+[package]
+name = "starcatch-tui"
+version = "0.1.0"
+edition = "2024"
+description = "Terminal UI for Starcatch — catch your starlight ideas in the terminal"
+
+[dependencies]
+# TUI
+ratatui = "0.28"
+crossterm = "0.28"
+
+# Core library
+starcatch-core = { path = "../starcatch-core" }
+
+# Date/Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1", features = ["v4"] }

@@ -1,3 +1,6 @@
+[workspace]
+members = ["starcatch-core", "tui"]
+
 [package]
 name = "starcatch"
 version = "0.1.0"
@@ -6,16 +9,10 @@ description = "Catch your starlight ideas — a Wayland-native capture tool"
 authors = ["溯星 (Sù Xīng) & 星渺 (Xīng Miǎo)"]
 
 [dependencies]
+starcatch-core = { path = "starcatch-core" }
+
 # CLI
 clap = { version = "4", features = ["derive"] }
-
-# Database
-rusqlite = { version = "0.34", features = ["bundled"] }
-sqlite-migrate = { path = "../sqlite-migrate" }
-
-# Serialization
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 
 # Date/Time
 chrono = { version = "0.4", features = ["serde"] }
@@ -23,20 +20,13 @@ chrono = { version = "0.4", features = ["serde"] }
 # Regex
 regex = "1"
 
-# CSV
-csv = "1"
-
 # Shell completions
 clap_complete = "4"
 
-# UUID
+# (Re-exported from starcatch-core but needed directly)
 uuid = { version = "1", features = ["v4"] }
-
-# Pipe mode - reading stdin
-# (built-in, no extra dep needed)
-
-# Template engine
-# (built-in, simple string replace)
+serde_json = "1"
+rusqlite = { version = "0.34", features = ["bundled"] }
 
 [dev-dependencies]
 tempfile = "3"
