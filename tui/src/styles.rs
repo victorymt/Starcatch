@@ -3,31 +3,23 @@ use ratatui::style::{Color, Modifier, Style};
 /// Theme colors for the TUI
 pub struct Theme {
     pub primary: Color,
-    pub secondary: Color,
     pub accent: Color,
     pub success: Color,
     pub warning: Color,
-    pub error: Color,
     pub text: Color,
     pub text_dim: Color,
-    pub background: Color,
     pub selected_bg: Color,
-    pub border: Color,
     pub input_bg: Color,
 }
 
 pub const THEME: Theme = Theme {
     primary: Color::Cyan,
-    secondary: Color::Blue,
     accent: Color::Magenta,
     success: Color::Green,
     warning: Color::Yellow,
-    error: Color::Red,
     text: Color::White,
     text_dim: Color::DarkGray,
-    background: Color::Reset,
     selected_bg: Color::DarkGray,
-    border: Color::Gray,
     input_bg: Color::Black,
 };
 
@@ -54,7 +46,7 @@ pub fn title_style() -> Style {
 
 pub fn status_bar_style() -> Style {
     Style::default()
-        .fg(THEME.background)
+        .fg(Color::Black)
         .bg(THEME.primary)
         .add_modifier(Modifier::BOLD)
 }
@@ -69,13 +61,5 @@ pub fn priority_color(priority: &starcatch_core::models::Priority) -> Color {
         starcatch_core::models::Priority::P1 => Color::Yellow,
         starcatch_core::models::Priority::P2 => Color::Green,
         starcatch_core::models::Priority::P3 => Color::DarkGray,
-    }
-}
-
-pub fn status_color(status: &starcatch_core::models::TodoStatus) -> Color {
-    match status {
-        starcatch_core::models::TodoStatus::Pending => Color::Yellow,
-        starcatch_core::models::TodoStatus::Done => Color::Green,
-        starcatch_core::models::TodoStatus::Archived => Color::DarkGray,
     }
 }

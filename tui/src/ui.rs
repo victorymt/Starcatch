@@ -46,7 +46,7 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     };
 
     let status_text = match &app.status_message {
-        Some(msg) => format!(" {}", msg),
+        Some(msg) => format!(" │ {} {} │ {}", view_name, input_mode, msg),
         None => format!(" ⭐ Starcatch | {} {} | {}", view_name, input_mode, mode_indicator.trim()),
     };
 

@@ -95,12 +95,17 @@ fn draw_editing_bar(frame: &mut Frame, area: Rect, app: &App) {
         ));
     }
 
-    // Placeholder when empty
+    // When empty, show cursor then placeholder
     if app.input_text.is_empty() {
+        // Block cursor at position 0
+        spans.push(Span::styled(
+            "▉",
+            Style::default().fg(styles::THEME.primary).bg(styles::THEME.input_bg),
+        ));
         let placeholder = match app.input_type {
-            InputType::Todo => "Type your todo here... (P1, #tag, due:, project:)",
-            InputType::Idea => "Type your idea here... (from:, #tag, project:)",
-            InputType::Log => "Type your log here... (mood:, #tag, project:)",
+            InputType::Todo => " Type your todo here... (P1, #tag, due:, project:)",
+            InputType::Idea => " Type your idea here... (from:, #tag, project:)",
+            InputType::Log => " Type your log here... (mood:, #tag, project:)",
         };
         spans.push(Span::styled(placeholder, styles::dim_text_style()));
     }

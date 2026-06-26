@@ -4,7 +4,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Padding, Paragraph};
 use ratatui::Frame;
 
-use crate::app::App;
+use crate::app::{App, safe_truncate_bytes};
 use crate::styles;
 
 pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
@@ -30,25 +30,26 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
     let items: Vec<ListItem> = app
         .logs
         .iter()
-        .enumerate()
-        .map(|(_i, log)| {
-            let content_preview = if log.content.len() > 80 {
-                format!("{}...", &log.content[..77])
-            } else {
-                log.content.clone()
-            };
+        .map(|log| {
+            let content_preview = safe_truncate_bytes(&log.content, 80);
 
             let mut spans = vec![Span::styled("📝 ", styles::item_style())];
 
             // Mood emoji
             if let Some(ref mood) = log.mood {
-                let mood_icon = match mood.to_lowercase().as_str() {
-                    "happy" | "开心" | "good" => "😊 ",
-                    "sad" | "难过" | "bad" => "😢 ",
-                    "angry" | "生气" => "😠 ",
-                    "tired" | "累" => "😴 ",
-                    "excited" | "兴奋" => "🎉 ",
-                    "calm" | "平静" => "😌 ",
+                let mood_icon = match mood.as_str() {
+                    "开心" => "😊 ",
+                    "难过" => "😢 ",
+                    "生气" => "😠 ",
+                    "累" => "😴 ",
+                    "兴奋" => "🎉 ",
+                    "平静" => "😌 ",
+                    m if m.eq_ignore_ascii_case("happy") || m.eq_ignore_ascii_case("good") => "😊 ",
+                    m if m.eq_ignore_ascii_case("sad") || m.eq_ignore_ascii_case("bad") => "😢 ",
+                    m if m.eq_ignore_ascii_case("angry") => "😠 ",
+                    m if m.eq_ignore_ascii_case("tired") => "😴 ",
+                    m if m.eq_ignore_ascii_case("excited") => "🎉 ",
+                    m if m.eq_ignore_ascii_case("calm") => "😌 ",
                     _ => "📓 ",
                 };
                 spans.push(Span::styled(mood_icon, styles::item_style()));
@@ -74,7 +75,11 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
 
             // Time
             let duration = chrono::Utc::now() - log.created_at;
-            let time_str = if duration.num_hours() < 24 {
+            let time_str = if duration.num_minutes() <= 0 {
+                " just now".to_string()
+            } else if duration.num_minutes() < 60 {
+                format!(" {}m ago", duration.num_minutes())
+            } else if duration.num_hours() < 24 {
                 format!(" {}h ago", duration.num_hours())
             } else {
                 format!(" {}d ago", duration.num_days())

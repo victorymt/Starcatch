@@ -10,6 +10,24 @@ pub fn char_idx_to_byte(s: &str, char_idx: usize) -> usize {
         .unwrap_or(s.len())
 }
 
+/// Safely truncate a string to at most `max_bytes` bytes, on a character
+/// boundary. If truncation occurs, appends "..." (included in max_bytes).
+/// Always yields valid UTF-8 — walks backward to find a char boundary,
+/// avoiding the byte-slicing panics that raw `&s[..N]` suffers from with
+/// multi-byte UTF-8 (CJK, emoji, etc.).
+pub fn safe_truncate_bytes(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        s.to_string()
+    } else {
+        let cutoff = max_bytes.saturating_sub(3); // room for "..."
+        let mut boundary = cutoff;
+        while boundary > 0 && !s.is_char_boundary(boundary) {
+            boundary -= 1;
+        }
+        format!("{}...", &s[..boundary])
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ActiveView {
     Todo,
@@ -38,7 +56,6 @@ pub struct App {
 
     // UI state
     pub selected_index: usize,
-    pub scroll_offset: usize,
 
     // Input
     pub editing: bool,        // true = input mode (/), false = command mode
@@ -53,12 +70,9 @@ pub struct App {
     // Status
     pub status_message: Option<String>,
     pub needs_refresh: bool,
+    pub status_auto_clear: bool,  // clear status on next Tick
 
-    // Toast
-    pub toast: Option<(String, Instant)>,
 }
-
-use std::time::Instant;
 
 impl App {
     pub fn new(db_path: &str) -> Result<Self, String> {
@@ -74,7 +88,6 @@ impl App {
             ideas: vec![],
             logs: vec![],
             selected_index: 0,
-            scroll_offset: 0,
             editing: false,
             editing_item_id: None,
             input_text: String::new(),
@@ -83,7 +96,7 @@ impl App {
             confirm_delete: false,
             status_message: None,
             needs_refresh: true,
-            toast: None,
+            status_auto_clear: false,
         };
         app.refresh_data();
         Ok(app)
@@ -92,7 +105,10 @@ impl App {
     pub fn refresh_data(&mut self) {
         let conn = match db::open(&self.db_path) {
             Ok(c) => c,
-            Err(_) => return,
+            Err(_) => {
+                self.set_status("Database error — data may be stale");
+                return;
+            }
         };
         self.todos = db::list_todos(&conn, None).unwrap_or_default();
         self.ideas = db::list_ideas(&conn, None).unwrap_or_default();
@@ -102,7 +118,10 @@ impl App {
     pub fn refresh_current_list(&mut self) {
         let conn = match db::open(&self.db_path) {
             Ok(c) => c,
-            Err(_) => return,
+            Err(_) => {
+                self.set_status("Database error — data may be stale");
+                return;
+            }
         };
         match self.active_view {
             ActiveView::Todo => {
@@ -125,17 +144,19 @@ impl App {
         }
     }
 
-    pub fn submit_input(&mut self) {
+    /// Submit the current input. Returns true on success, false if nothing
+    /// was submitted (empty input or database error).
+    pub fn submit_input(&mut self) -> bool {
         let text = self.input_text.trim().to_string();
         if text.is_empty() {
-            return;
+            return false;
         }
 
         let conn = match db::open(&self.db_path) {
             Ok(c) => c,
             Err(_) => {
                 self.set_status("Failed to open database");
-                return;
+                return false;
             }
         };
 
@@ -156,10 +177,9 @@ impl App {
                 }
                 InputType::Idea => {
                     let parsed = starcatch_core::parser::parse_pipe_idea(&text);
-                    let title = parsed.title;
                     let update = starcatch_core::db::IdeaUpdate {
-                        title: Some(title.clone()),
-                        content: Some(title),
+                        title: Some(parsed.title),
+                        content: None, // preserve existing content
                         source: parsed.source,
                         tags: if parsed.tags.is_empty() { None } else { Some(parsed.tags) },
                         project: parsed.project,
@@ -186,7 +206,7 @@ impl App {
             self.input_text.clear();
             self.input_cursor = 0;
             self.needs_refresh = true;
-            return;
+            return true;
         }
 
         // ── Otherwise insert new item ──
@@ -207,17 +227,16 @@ impl App {
                 };
                 if let Err(e) = db::insert_todo(&conn, &todo) {
                     self.set_status(&format!("Error: {}", e));
-                    return;
+                    return false;
                 }
                 self.set_status("Todo added");
             }
             InputType::Idea => {
                 let parsed = starcatch_core::parser::parse_pipe_idea(&text);
-                let title = parsed.title;
                 let idea = Idea {
                     id: uuid::Uuid::new_v4().to_string(),
-                    title: title.clone(),
-                    content: Some(title),
+                    title: parsed.title,
+                    content: None,
                     source: parsed.source,
                     context_window: None,
                     tags: parsed.tags,
@@ -226,7 +245,7 @@ impl App {
                 };
                 if let Err(e) = db::insert_idea(&conn, &idea) {
                     self.set_status(&format!("Error: {}", e));
-                    return;
+                    return false;
                 }
                 self.set_status("Idea added");
             }
@@ -243,7 +262,7 @@ impl App {
                 };
                 if let Err(e) = db::insert_log(&conn, &log) {
                     self.set_status(&format!("Error: {}", e));
-                    return;
+                    return false;
                 }
                 self.set_status("Log added");
             }
@@ -252,6 +271,7 @@ impl App {
         self.input_text.clear();
         self.input_cursor = 0;
         self.needs_refresh = true;
+        true
     }
 
     pub fn toggle_selected_todo(&mut self) {
@@ -262,10 +282,14 @@ impl App {
             return;
         }
         let todo = &self.todos[self.selected_index];
+        // Archived items are not toggleable — use archive action instead
+        if todo.status == TodoStatus::Archived {
+            return;
+        }
         let new_status = match todo.status {
             TodoStatus::Pending => TodoStatus::Done,
             TodoStatus::Done => TodoStatus::Pending,
-            TodoStatus::Archived => TodoStatus::Archived,
+            TodoStatus::Archived => unreachable!(),
         };
         let conn = match db::open(&self.db_path) {
             Ok(c) => c,
@@ -406,9 +430,102 @@ impl App {
 
     pub fn set_status(&mut self, msg: &str) {
         self.status_message = Some(msg.to_string());
+        self.status_auto_clear = true;
     }
 
-    pub fn clear_status(&mut self) {
-        self.status_message = None;
+    /// Called on Tick events. Clears the status after one tick delay,
+    /// giving the user ~250ms to read it.
+    pub fn tick_clear_status(&mut self) {
+        if self.status_auto_clear {
+            self.status_auto_clear = false;
+            self.status_message = None;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_char_idx_to_byte_ascii() {
+        assert_eq!(char_idx_to_byte("hello", 0), 0);
+        assert_eq!(char_idx_to_byte("hello", 2), 2);
+        assert_eq!(char_idx_to_byte("hello", 4), 4);
+        // out of range returns len
+        assert_eq!(char_idx_to_byte("hello", 10), 5);
+    }
+
+    #[test]
+    fn test_char_idx_to_byte_unicode() {
+        // "中" is 3 bytes
+        let s = "a中b";
+        assert_eq!(char_idx_to_byte(s, 0), 0); // 'a' at byte 0
+        assert_eq!(char_idx_to_byte(s, 1), 1); // '中' at byte 1
+        assert_eq!(char_idx_to_byte(s, 2), 4); // 'b' at byte 4
+        assert_eq!(char_idx_to_byte(s, 3), 5); // end
+    }
+
+    #[test]
+    fn test_char_idx_to_byte_emoji() {
+        // "😀" is 4 bytes
+        let s = "😀hi";
+        assert_eq!(char_idx_to_byte(s, 0), 0);
+        assert_eq!(char_idx_to_byte(s, 1), 4); // 'h' at byte 4
+        assert_eq!(char_idx_to_byte(s, 2), 5); // 'i' at byte 5
+    }
+
+    #[test]
+    fn test_safe_truncate_bytes_short() {
+        assert_eq!(safe_truncate_bytes("hello", 10), "hello");
+        assert_eq!(safe_truncate_bytes("", 5), "");
+    }
+
+    #[test]
+    fn test_safe_truncate_bytes_long_ascii() {
+        assert_eq!(safe_truncate_bytes("hello world!", 8), "hello...");
+        // Exactly at boundary
+        assert_eq!(safe_truncate_bytes("abc", 3), "abc");
+        assert_eq!(safe_truncate_bytes("abcd", 3), "..."); // "..." fills all 3 bytes
+    }
+
+    #[test]
+    fn test_safe_truncate_bytes_unicode_no_panic() {
+        // 20 Chinese characters = 60 bytes; truncate at 30 bytes
+        let s = "中".repeat(20);
+        let result = safe_truncate_bytes(&s, 30);
+        assert!(result.ends_with("..."));
+        // 27 bytes of CJK + 3 dots = 30 bytes max
+        assert!(result.len() <= 30);
+    }
+
+    #[test]
+    fn test_safe_truncate_bytes_mixed() {
+        // 'h'(1) 'e'(1) 'l'(1) 'l'(1) 'o'(1) '世'(3) '界'(3) '!'(1) = 12 bytes
+        let s = "hello世界!";
+        let result = safe_truncate_bytes(s, 8);
+        assert_eq!(result, "hello...");
+    }
+
+    #[test]
+    fn test_safe_truncate_bytes_emoji() {
+        let s = "😀😀😀😀😀"; // 5 emoji × 4 bytes = 20 bytes
+        let result = safe_truncate_bytes(s, 15); // room for 3 emoji (12 bytes) + "..."
+        assert!(result.ends_with("..."));
+        assert!(result.len() <= 15);
+    }
+
+    #[test]
+    fn test_safe_truncate_bytes_char_boundary() {
+        // "a" (1B) + "中" (3B) + "b" (1B) = 5 bytes
+        let s = "a中b";
+        // Budget 4: 5 > 4, cutoff=1, boundary=1 (after 'a'), result="a..."
+        assert_eq!(safe_truncate_bytes(s, 4), "a...");
+        // Budget 3: 5 > 3, cutoff=0, boundary=0, result="..."
+        assert_eq!(safe_truncate_bytes(s, 3), "...");
+        // Budget 5: exactly fits, no truncation
+        assert_eq!(safe_truncate_bytes(s, 5), "a中b");
+        // Budget 8: more than enough
+        assert_eq!(safe_truncate_bytes(s, 8), "a中b");
     }
 }

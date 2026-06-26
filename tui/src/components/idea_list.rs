@@ -30,8 +30,7 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
     let items: Vec<ListItem> = app
         .ideas
         .iter()
-        .enumerate()
-        .map(|(_i, idea)| {
+        .map(|idea| {
             let mut spans = vec![Span::styled("💡 ", styles::item_style())];
 
             spans.push(Span::styled(&idea.title, styles::item_style()));
@@ -62,7 +61,11 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
 
             // Show created time relative
             let duration = chrono::Utc::now() - idea.created_at;
-            let time_str = if duration.num_hours() < 24 {
+            let time_str = if duration.num_minutes() <= 0 {
+                " just now".to_string()
+            } else if duration.num_minutes() < 60 {
+                format!(" {}m ago", duration.num_minutes())
+            } else if duration.num_hours() < 24 {
                 format!(" {}h ago", duration.num_hours())
             } else {
                 format!(" {}d ago", duration.num_days())

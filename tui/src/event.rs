@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use crossterm::event::{self as crossterm_event, Event as CrosstermEvent, KeyEvent};
 
-const POLL_TIMEOUT: Duration = Duration::from_millis(100);
+const POLL_TIMEOUT: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone)]
 pub enum Event {

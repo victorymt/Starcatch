@@ -1,12 +1,14 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::app::{ActiveView, App, InputType};
+use crate::app::{ActiveView, App, InputType, safe_truncate_bytes};
 use crate::event::Event;
 
 /// Handle an event, return true if the app should quit.
 pub fn handle(app: &mut App, event: Event) -> std::io::Result<bool> {
     match event {
-        Event::Tick => {}
+        Event::Tick => {
+            app.tick_clear_status();
+        }
         Event::Resize(w, h) => {
             let _ = (w, h);
         }
@@ -35,11 +37,12 @@ fn handle_key(app: &mut App, key: KeyEvent) -> bool {
         app.confirm_delete = false;
     }
 
-    // ── Ctrl+T/I/L: switch input type (only in command mode) ─────
+    // ── Ctrl+T/L: switch input type (only in command mode) ─────
+    // Note: Ctrl+I is NOT handled here because it conflicts with Tab
+    // (both send byte 0x09). Tab cycles views instead.
     if !app.editing && key.modifiers == KeyModifiers::CONTROL {
         match key.code {
             KeyCode::Char('t') => app.input_type = InputType::Todo,
-            KeyCode::Char('i') => app.input_type = InputType::Idea,
             KeyCode::Char('l') => app.input_type = InputType::Log,
             _ => {}
         }
@@ -56,8 +59,9 @@ fn handle_key(app: &mut App, key: KeyEvent) -> bool {
                 app.input_cursor = 0;
             }
             (KeyCode::Enter, _) => {
-                app.submit_input();
-                app.editing = false;
+                if app.submit_input() {
+                    app.editing = false;
+                }
             }
             (KeyCode::Backspace, _) => {
                 if app.input_cursor > 0 {
@@ -128,6 +132,9 @@ fn handle_key(app: &mut App, key: KeyEvent) -> bool {
         KeyCode::Tab | KeyCode::Right => {
             cycle_view(app);
         }
+        KeyCode::Left => {
+            cycle_view_reverse(app);
+        }
         KeyCode::Up | KeyCode::Char('k') => {
             if app.selected_index > 0 {
                 app.selected_index -= 1;
@@ -153,7 +160,7 @@ fn handle_key(app: &mut App, key: KeyEvent) -> bool {
                 ActiveView::Log => {
                     if let Some(log) = app.logs.get(app.selected_index) {
                         let mood = log.mood.as_deref().unwrap_or("-");
-                        let preview = if log.content.len() > 60 { format!("{}...", &log.content[..57]) } else { log.content.clone() };
+                        let preview = safe_truncate_bytes(&log.content, 60);
                         app.set_status(&format!("📝 mood:{} {}", mood, preview));
                     }
                 }
@@ -204,6 +211,16 @@ fn cycle_view(app: &mut App) {
         ActiveView::Todo => ActiveView::Idea,
         ActiveView::Idea => ActiveView::Log,
         ActiveView::Log => ActiveView::Todo,
+    };
+    app.selected_index = 0;
+    app.refresh_current_list();
+}
+
+fn cycle_view_reverse(app: &mut App) {
+    app.active_view = match app.active_view {
+        ActiveView::Todo => ActiveView::Log,
+        ActiveView::Log => ActiveView::Idea,
+        ActiveView::Idea => ActiveView::Todo,
     };
     app.selected_index = 0;
     app.refresh_current_list();

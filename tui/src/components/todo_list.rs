@@ -32,8 +32,7 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
     let items: Vec<ListItem> = app
         .todos
         .iter()
-        .enumerate()
-        .map(|(_i, todo)| {
+        .map(|todo| {
             let is_done = todo.status == TodoStatus::Done;
             let is_archived = todo.status == TodoStatus::Archived;
 
@@ -104,11 +103,11 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
         " Enter:toggle  e:edit  d:del  a:archive  1-3:view",
         styles::dim_text_style(),
     )]);
-    if area.height > 3 {
+    if inner.height > 1 {
         let hint_area = Rect {
-            x: area.x,
-            y: area.y + area.height - 1,
-            width: area.width,
+            x: inner.x,
+            y: inner.y + inner.height.saturating_sub(1),
+            width: inner.width,
             height: 1,
         };
         frame.render_widget(Paragraph::new(hint), hint_area);

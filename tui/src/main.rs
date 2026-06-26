@@ -43,14 +43,14 @@ fn main() -> io::Result<()> {
     // Run event loop
     let res = run(&mut terminal, &mut app);
 
-    // Restore terminal
-    disable_raw_mode()?;
-    execute!(
+    // Restore terminal — don't let cleanup errors hide the app error
+    let _ = disable_raw_mode();
+    let _ = execute!(
         terminal.backend_mut(),
         LeaveAlternateScreen,
         DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
+    );
+    let _ = terminal.show_cursor();
 
     if let Err(err) = res {
         eprintln!("Error: {}", err);
