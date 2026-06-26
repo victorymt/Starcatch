@@ -34,6 +34,7 @@ pub struct App {
     pub scroll_offset: usize,
 
     // Input
+    pub editing: bool,        // true = input mode (/), false = command mode
     pub input_text: String,
     pub input_type: InputType,
     pub input_cursor: usize,
@@ -63,6 +64,7 @@ impl App {
             logs: vec![],
             selected_index: 0,
             scroll_offset: 0,
+            editing: false,
             input_text: String::new(),
             input_type: InputType::Todo,
             input_cursor: 0,

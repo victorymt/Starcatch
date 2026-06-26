@@ -6,11 +6,8 @@ use crate::event::Event;
 /// Handle an event, return true if the app should quit.
 pub fn handle(app: &mut App, event: Event) -> std::io::Result<bool> {
     match event {
-        Event::Tick => {
-            // Periodic tasks can go here
-        }
+        Event::Tick => {}
         Event::Resize(w, h) => {
-            // Terminal resize - ratatui handles this automatically
             let _ = (w, h);
         }
         Event::Key(key) => {
@@ -23,38 +20,62 @@ pub fn handle(app: &mut App, event: Event) -> std::io::Result<bool> {
 }
 
 fn handle_key(app: &mut App, key: KeyEvent) -> bool {
-    // Global shortcuts (take priority)
-    match key.code {
-        KeyCode::Char('q') if key.modifiers == KeyModifiers::NONE => {
-            return true; // quit
-        }
-        KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => {
-            return true; // quit
-        }
-        KeyCode::Char('?') => {
-            // Help - could show help overlay later
-            app.set_status(
-                "Tab:Switch  ↑↓:Nav  Enter:Toggle  d:Del  a:Archive  q:Quit",
-            );
-            return false;
-        }
-        _ => {}
+    // ── Quit: always active ─────────────────────────────────────
+    if matches!(key.code, KeyCode::Char('q'))
+        && key.modifiers == KeyModifiers::NONE
+    {
+        return true;
+    }
+    if matches!((key.code, key.modifiers), (KeyCode::Char('c'), KeyModifiers::CONTROL)) {
+        return true;
     }
 
-    // If user is typing in the input bar, handle input keys
-    // We consider input active when there is text or when certain keys are pressed
-    let is_input_key = matches!(
-        key.code,
-        KeyCode::Char(_) | KeyCode::Backspace | KeyCode::Enter | KeyCode::Tab
-    );
-
-    if is_input_key {
-        handle_input_key(app, key);
+    // ── Ctrl+T/I/L: switch input type (always active) ────────────
+    if key.modifiers == KeyModifiers::CONTROL {
+        match key.code {
+            KeyCode::Char('t') => app.input_type = InputType::Todo,
+            KeyCode::Char('i') => app.input_type = InputType::Idea,
+            KeyCode::Char('l') => app.input_type = InputType::Log,
+            _ => {}
+        }
         return false;
     }
 
-    // Navigation and action keys (only when not in input mode)
+    // ── Editing mode: / entered ────────────────────────────────
+    if app.editing {
+        match key.code {
+            KeyCode::Esc => {
+                app.editing = false;
+                app.input_text.clear();
+                app.input_cursor = 0;
+            }
+            KeyCode::Enter => {
+                app.submit_input();
+                app.editing = false;
+            }
+            KeyCode::Backspace => {
+                if app.input_cursor > 0 {
+                    app.input_cursor -= 1;
+                    app.input_text.remove(app.input_cursor);
+                }
+            }
+            KeyCode::Char(ch) => {
+                app.input_text.insert(app.input_cursor, ch);
+                app.input_cursor += 1;
+            }
+            _ => {}
+        }
+        return false;
+    }
+
+    // ── Command mode ───────────────────────────────────────────
     match key.code {
+        // Enter editing mode
+        KeyCode::Char('/') => {
+            app.editing = true;
+        }
+
+        // Navigation
         KeyCode::Tab | KeyCode::Right => {
             cycle_view(app);
         }
@@ -69,6 +90,8 @@ fn handle_key(app: &mut App, key: KeyEvent) -> bool {
                 app.selected_index += 1;
             }
         }
+
+        // Actions
         KeyCode::Enter => {
             app.toggle_selected_todo();
         }
@@ -78,6 +101,8 @@ fn handle_key(app: &mut App, key: KeyEvent) -> bool {
         KeyCode::Char('a') => {
             app.archive_selected_todo();
         }
+
+        // Quick view switching
         KeyCode::Char('1') => {
             app.active_view = ActiveView::Todo;
             app.selected_index = 0;
@@ -93,42 +118,18 @@ fn handle_key(app: &mut App, key: KeyEvent) -> bool {
             app.selected_index = 0;
             app.refresh_current_list();
         }
+
+        // Help
+        KeyCode::Char('?') => {
+            app.set_status(
+                "/:Input  Tab:Switch  ↑↓:Nav  Enter:Toggle  d:Del  a:Archive  q:Quit",
+            );
+        }
+
         _ => {}
     }
 
     false
-}
-
-fn handle_input_key(app: &mut App, key: KeyEvent) {
-    match key.code {
-        KeyCode::Char(ch) => {
-            app.input_text.insert(app.input_cursor, ch);
-            app.input_cursor += 1;
-        }
-        KeyCode::Backspace => {
-            if app.input_cursor > 0 {
-                app.input_cursor -= 1;
-                app.input_text.remove(app.input_cursor);
-            }
-        }
-        KeyCode::Enter => {
-            app.submit_input();
-        }
-        KeyCode::Tab => {
-            cycle_view(app);
-        }
-        _ => {}
-    }
-
-    // Handle Ctrl+T, Ctrl+I, Ctrl+L for input type switching
-    if key.modifiers == KeyModifiers::CONTROL {
-        match key.code {
-            KeyCode::Char('t') => app.input_type = InputType::Todo,
-            KeyCode::Char('i') => app.input_type = InputType::Idea,
-            KeyCode::Char('l') => app.input_type = InputType::Log,
-            _ => {}
-        }
-    }
 }
 
 fn cycle_view(app: &mut App) {
