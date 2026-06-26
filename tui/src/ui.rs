@@ -2,6 +2,7 @@ use crate::app::{ActiveView, App, InputType};
 use crate::components;
 use crate::styles;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
@@ -37,12 +38,20 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
         InputType::Log => "[L]",
     };
 
+    let mode_indicator = if app.editing { " EDIT " } else { " CMD " };
+    let mode_style = if app.editing {
+        Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
+    } else {
+        styles::status_bar_style()
+    };
+
     let status_text = match &app.status_message {
         Some(msg) => format!(" {}", msg),
-        None => format!(" ⭐ Starcatch | {} {}", view_name, input_mode),
+        None => format!(" ⭐ Starcatch | {} {} | {}", view_name, input_mode, mode_indicator.trim()),
     };
 
     let line = Line::from(vec![
+        Span::styled(mode_indicator, mode_style),
         Span::styled(status_text, styles::status_bar_style()),
         Span::styled(
             format!("  {}", app.current_list_len()),

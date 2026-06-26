@@ -156,9 +156,10 @@ impl App {
                 }
                 InputType::Idea => {
                     let parsed = starcatch_core::parser::parse_pipe_idea(&text);
+                    let title = parsed.title;
                     let update = starcatch_core::db::IdeaUpdate {
-                        title: Some(parsed.title),
-                        content: None,
+                        title: Some(title.clone()),
+                        content: Some(title),
                         source: parsed.source,
                         tags: if parsed.tags.is_empty() { None } else { Some(parsed.tags) },
                         project: parsed.project,
@@ -212,10 +213,11 @@ impl App {
             }
             InputType::Idea => {
                 let parsed = starcatch_core::parser::parse_pipe_idea(&text);
+                let title = parsed.title;
                 let idea = Idea {
                     id: uuid::Uuid::new_v4().to_string(),
-                    title: parsed.title,
-                    content: None,
+                    title: title.clone(),
+                    content: Some(title),
                     source: parsed.source,
                     context_window: None,
                     tags: parsed.tags,

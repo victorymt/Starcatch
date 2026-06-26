@@ -30,10 +30,6 @@ fn handle_key(app: &mut App, key: KeyEvent) -> bool {
         return true;
     }
 
-    // ── Auto-clear status message & confirm on next interaction ─
-    if app.status_message.is_some() {
-        app.clear_status();
-    }
     // Reset delete-confirm if pressing any key other than 'd'
     if app.confirm_delete && !matches!((key.code, key.modifiers), (KeyCode::Char('d'), KeyModifiers::NONE)) {
         app.confirm_delete = false;
@@ -82,6 +78,19 @@ fn handle_key(app: &mut App, key: KeyEvent) -> bool {
             (KeyCode::Char('k'), KeyModifiers::CONTROL) => {
                 let byte_pos = crate::app::char_idx_to_byte(&app.input_text, app.input_cursor);
                 app.input_text.truncate(byte_pos);
+            }
+            (KeyCode::Char('t'), KeyModifiers::CONTROL) => {
+                app.input_type = InputType::Todo;
+            }
+            (KeyCode::Char('i'), KeyModifiers::CONTROL) => {
+                app.input_type = InputType::Idea;
+            }
+            // Tab = Ctrl+I in terminals
+            (KeyCode::Tab, _) => {
+                app.input_type = InputType::Idea;
+            }
+            (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
+                app.input_type = InputType::Log;
             }
 
             // ── Arrow key navigation ──
