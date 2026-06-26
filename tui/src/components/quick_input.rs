@@ -4,7 +4,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
-use crate::app::{App, InputType};
+use crate::app::{App, InputType, char_idx_to_byte};
 use crate::styles;
 
 pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
@@ -59,10 +59,13 @@ fn draw_editing_bar(frame: &mut Frame, area: Rect, app: &App) {
 
     let mut spans = Vec::new();
 
+    // Convert char-index cursor to byte offset for safe string slicing
+    let byte_cursor = char_idx_to_byte(&app.input_text, app.input_cursor);
+
     // Text before cursor
-    if app.input_cursor > 0 {
+    if byte_cursor > 0 {
         spans.push(Span::styled(
-            app.input_text[..app.input_cursor].to_string(),
+            app.input_text[..byte_cursor].to_string(),
             styles::input_style(),
         ));
     }
@@ -74,9 +77,9 @@ fn draw_editing_bar(frame: &mut Frame, area: Rect, app: &App) {
     ));
 
     // Text after cursor
-    if app.input_cursor < app.input_text.len() {
+    if byte_cursor < app.input_text.len() {
         spans.push(Span::styled(
-            app.input_text[app.input_cursor..].to_string(),
+            app.input_text[byte_cursor..].to_string(),
             styles::input_style(),
         ));
     }

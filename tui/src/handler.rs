@@ -56,11 +56,14 @@ fn handle_key(app: &mut App, key: KeyEvent) -> bool {
             KeyCode::Backspace => {
                 if app.input_cursor > 0 {
                     app.input_cursor -= 1;
-                    app.input_text.remove(app.input_cursor);
+                    let byte_pos = crate::app::char_idx_to_byte(&app.input_text, app.input_cursor);
+                    let end = byte_pos + app.input_text[byte_pos..].chars().next().map_or(0, |c| c.len_utf8());
+                    app.input_text.drain(byte_pos..end);
                 }
             }
             KeyCode::Char(ch) => {
-                app.input_text.insert(app.input_cursor, ch);
+                let byte_pos = crate::app::char_idx_to_byte(&app.input_text, app.input_cursor);
+                app.input_text.insert(byte_pos, ch);
                 app.input_cursor += 1;
             }
             _ => {}

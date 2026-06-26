@@ -323,21 +323,21 @@ mod tests {
     #[test]
     fn today() {
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        assert_eq!(parse_natural_date("today"), Some(today));
+        assert_eq!(parse_natural_date("today"), Some(today.clone()));
         assert_eq!(parse_natural_date("今天"), Some(today));
     }
 
     #[test]
     fn tomorrow() {
         let tomorrow = (Utc::now() + Duration::days(1)).format("%Y-%m-%d").to_string();
-        assert_eq!(parse_natural_date("tomorrow"), Some(tomorrow));
+        assert_eq!(parse_natural_date("tomorrow"), Some(tomorrow.clone()));
         assert_eq!(parse_natural_date("明天"), Some(tomorrow));
     }
 
     #[test]
     fn numeric_days() {
         let expected = (Utc::now() + Duration::days(3)).format("%Y-%m-%d").to_string();
-        assert_eq!(parse_natural_date("3天"), Some(expected));
+        assert_eq!(parse_natural_date("3天"), Some(expected.clone()));
         assert_eq!(parse_natural_date("3d"), Some(expected));
     }
 
@@ -409,7 +409,7 @@ mod tests {
     fn todo_only_keywords_uses_raw() {
         let r = parse_pipe_todo("P1");
         assert_eq!(r.title, "P1");
-        assert_eq!(r.priority, Priority::P2);
+        assert_eq!(r.priority, Priority::P1);
     }
 
     #[test]

@@ -1,6 +1,15 @@
 use starcatch_core::db::{self};
 use starcatch_core::models::*;
 
+/// Convert a char-index (cursor position in characters) to a byte offset
+/// for safe string slicing. Returns `s.len()` if `char_idx` is out of range.
+pub fn char_idx_to_byte(s: &str, char_idx: usize) -> usize {
+    s.char_indices()
+        .nth(char_idx)
+        .map(|(i, _)| i)
+        .unwrap_or(s.len())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ActiveView {
     Todo,
