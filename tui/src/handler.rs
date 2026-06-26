@@ -31,29 +31,36 @@ fn handle_key(app: &mut App, key: KeyEvent) -> bool {
     }
 
     // ── Ctrl+T/I/L: switch input type (always active) ────────────
-    if key.modifiers == KeyModifiers::CONTROL {
+    // Note: Ctrl+I = Tab (ASCII 0x09) in most terminals, so Tab is also mapped here.
+    let ctrl_i_pressed = matches!((key.code, key.modifiers), (KeyCode::Tab, _) | (KeyCode::Char('i'), KeyModifiers::CONTROL));
+    if key.modifiers == KeyModifiers::CONTROL || ctrl_i_pressed {
         match key.code {
             KeyCode::Char('t') => app.input_type = InputType::Todo,
+            _ if ctrl_i_pressed => app.input_type = InputType::Idea,
             KeyCode::Char('i') => app.input_type = InputType::Idea,
             KeyCode::Char('l') => app.input_type = InputType::Log,
             _ => {}
         }
-        return false;
+        // Don't return for Tab in command mode (Tab also cycles views)
+        if !ctrl_i_pressed {
+            return false;
+        }
     }
 
     // ── Editing mode: / entered ────────────────────────────────
     if app.editing {
-        match key.code {
-            KeyCode::Esc => {
+        match (key.code, key.modifiers) {
+            (KeyCode::Esc, _) => {
                 app.editing = false;
+                app.editing_item_id = None;
                 app.input_text.clear();
                 app.input_cursor = 0;
             }
-            KeyCode::Enter => {
+            (KeyCode::Enter, _) => {
                 app.submit_input();
                 app.editing = false;
             }
-            KeyCode::Backspace => {
+            (KeyCode::Backspace, _) => {
                 if app.input_cursor > 0 {
                     app.input_cursor -= 1;
                     let byte_pos = crate::app::char_idx_to_byte(&app.input_text, app.input_cursor);
@@ -61,7 +68,34 @@ fn handle_key(app: &mut App, key: KeyEvent) -> bool {
                     app.input_text.drain(byte_pos..end);
                 }
             }
-            KeyCode::Char(ch) => {
+
+            // ── Emacs / Ctrl keybindings ──
+            (KeyCode::Char('a'), KeyModifiers::CONTROL) => {
+                app.input_cursor = 0;
+            }
+            (KeyCode::Char('e'), KeyModifiers::CONTROL) => {
+                app.input_cursor = app.input_text.chars().count();
+            }
+            (KeyCode::Char('k'), KeyModifiers::CONTROL) => {
+                let byte_pos = crate::app::char_idx_to_byte(&app.input_text, app.input_cursor);
+                app.input_text.truncate(byte_pos);
+            }
+
+            // ── Arrow key navigation ──
+            (KeyCode::Left, _) => {
+                if app.input_cursor > 0 {
+                    app.input_cursor -= 1;
+                }
+            }
+            (KeyCode::Right, _) => {
+                let max = app.input_text.chars().count();
+                if app.input_cursor < max {
+                    app.input_cursor += 1;
+                }
+            }
+
+            // ── Regular character input ──
+            (KeyCode::Char(ch), KeyModifiers::NONE) | (KeyCode::Char(ch), KeyModifiers::SHIFT) => {
                 let byte_pos = crate::app::char_idx_to_byte(&app.input_text, app.input_cursor);
                 app.input_text.insert(byte_pos, ch);
                 app.input_cursor += 1;
@@ -97,6 +131,9 @@ fn handle_key(app: &mut App, key: KeyEvent) -> bool {
         // Actions
         KeyCode::Enter => {
             app.toggle_selected_todo();
+        }
+        KeyCode::Char('e') => {
+            app.start_edit();
         }
         KeyCode::Char('d') => {
             app.delete_selected();

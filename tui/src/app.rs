@@ -42,6 +42,7 @@ pub struct App {
 
     // Input
     pub editing: bool,        // true = input mode (/), false = command mode
+    pub editing_item_id: Option<String>,  // set when editing an existing item
     pub input_text: String,
     pub input_type: InputType,
     pub input_cursor: usize,
@@ -72,6 +73,7 @@ impl App {
             selected_index: 0,
             scroll_offset: 0,
             editing: false,
+            editing_item_id: None,
             input_text: String::new(),
             input_type: InputType::Todo,
             input_cursor: 0,
@@ -133,6 +135,56 @@ impl App {
             }
         };
 
+        // ── If editing an existing item, update it ──
+        if let Some(ref item_id) = self.editing_item_id.clone() {
+            let ok = match self.input_type {
+                InputType::Todo => {
+                    let parsed = starcatch_core::parser::parse_pipe_todo(&text);
+                    let update = starcatch_core::db::TodoUpdate {
+                        title: Some(parsed.title),
+                        description: None,
+                        priority: Some(parsed.priority),
+                        due_date: parsed.due_date,
+                        tags: if parsed.tags.is_empty() { None } else { Some(parsed.tags) },
+                        project: parsed.project,
+                    };
+                    db::update_todo(&conn, &item_id, &update).is_ok()
+                }
+                InputType::Idea => {
+                    let parsed = starcatch_core::parser::parse_pipe_idea(&text);
+                    let update = starcatch_core::db::IdeaUpdate {
+                        title: Some(parsed.title),
+                        content: None,
+                        source: parsed.source,
+                        tags: if parsed.tags.is_empty() { None } else { Some(parsed.tags) },
+                        project: parsed.project,
+                    };
+                    db::update_idea(&conn, &item_id, &update).is_ok()
+                }
+                InputType::Log => {
+                    let parsed = starcatch_core::parser::parse_pipe_log(&text);
+                    let update = starcatch_core::db::LogUpdate {
+                        content: Some(parsed.content),
+                        mood: parsed.mood,
+                        tags: if parsed.tags.is_empty() { None } else { Some(parsed.tags) },
+                        project: parsed.project,
+                    };
+                    db::update_log(&conn, &item_id, &update).is_ok()
+                }
+            };
+            if ok {
+                self.set_status("Item updated");
+            } else {
+                self.set_status("Failed to update item");
+            }
+            self.editing_item_id = None;
+            self.input_text.clear();
+            self.input_cursor = 0;
+            self.needs_refresh = true;
+            return;
+        }
+
+        // ── Otherwise insert new item ──
         match self.input_type {
             InputType::Todo => {
                 let parsed = starcatch_core::parser::parse_pipe_todo(&text);
@@ -295,6 +347,40 @@ impl App {
         if self.selected_index >= self.current_list_len().saturating_sub(1) {
             self.selected_index = self.selected_index.saturating_sub(1);
         }
+    }
+
+    /// Start editing the currently selected item.
+    /// Pre-fills the input bar and enters editing mode.
+    pub fn start_edit(&mut self) {
+        if self.current_list_len() == 0 || self.selected_index >= self.current_list_len() {
+            return;
+        }
+
+        let (id, text) = match self.active_view {
+            ActiveView::Todo => {
+                let t = &self.todos[self.selected_index];
+                (t.id.clone(), t.title.clone())
+            }
+            ActiveView::Idea => {
+                let t = &self.ideas[self.selected_index];
+                (t.id.clone(), t.title.clone())
+            }
+            ActiveView::Log => {
+                let t = &self.logs[self.selected_index];
+                (t.id.clone(), t.content.clone())
+            }
+        };
+
+        self.input_type = match self.active_view {
+            ActiveView::Todo => InputType::Todo,
+            ActiveView::Idea => InputType::Idea,
+            ActiveView::Log => InputType::Log,
+        };
+
+        self.editing = true;
+        self.editing_item_id = Some(id);
+        self.input_text = text;
+        self.input_cursor = self.input_text.chars().count();
     }
 
     pub fn set_status(&mut self, msg: &str) {

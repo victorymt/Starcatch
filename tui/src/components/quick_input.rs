@@ -49,8 +49,10 @@ fn draw_editing_bar(frame: &mut Frame, area: Rect, app: &App) {
         InputType::Log => "[L] Log",
     };
 
+    let mode_label = if app.editing_item_id.is_some() { "EDIT" } else { "ADD" };
+
     let block = Block::default()
-        .title(format!(" ⚡ EDITING {} | Esc:cancel Enter:submit ", input_type_str))
+        .title(format!(" ⚡ {} {} | Esc:cancel Enter:submit ", mode_label, input_type_str))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(styles::THEME.success));
 
@@ -70,17 +72,26 @@ fn draw_editing_bar(frame: &mut Frame, area: Rect, app: &App) {
         ));
     }
 
-    // Cursor
-    spans.push(Span::styled(
-        "█",
-        Style::default().fg(styles::THEME.primary).bg(styles::THEME.input_bg),
-    ));
-
-    // Text after cursor
-    if byte_cursor < app.input_text.len() {
+    // Block cursor — sits ON the character at cursor position
+    let remaining = &app.input_text[byte_cursor..];
+    if let Some(c) = remaining.chars().next() {
+        let char_len = c.len_utf8();
         spans.push(Span::styled(
-            app.input_text[byte_cursor..].to_string(),
-            styles::input_style(),
+            c.to_string(),
+            Style::default().fg(styles::THEME.input_bg).bg(styles::THEME.primary),
+        ));
+        // Text after the character under cursor
+        if char_len < remaining.len() {
+            spans.push(Span::styled(
+                remaining[char_len..].to_string(),
+                styles::input_style(),
+            ));
+        }
+    } else if !app.input_text.is_empty() {
+        // At end of text — show solid block cursor
+        spans.push(Span::styled(
+            "▉",
+            Style::default().fg(styles::THEME.primary).bg(styles::THEME.input_bg),
         ));
     }
 
