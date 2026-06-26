@@ -12,7 +12,6 @@ mod app;
 mod components;
 mod event;
 mod handler;
-mod input_parser;
 mod styles;
 mod ui;
 

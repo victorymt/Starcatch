@@ -1,11 +1,9 @@
 mod cli;
 
 use std::io::Read;
-use std::sync::LazyLock;
 
-use chrono::{Datelike, Duration, Utc, Weekday};
+use chrono::Utc;
 use clap::Parser;
-use regex::Regex;
 
 use cli::*;
 use starcatch_core::{IdeaUpdate, LogUpdate, TodoUpdate};
@@ -59,306 +57,6 @@ fn main() {
     }
 }
 
-// ─── Pipe input parser ───
-
-fn is_trailing_punct(c: char) -> bool {
-    c.is_ascii_punctuation()
-        || c == '\u{3001}' // 、
-        || c == '\u{3002}' // 。
-        || c == '\u{FF0C}' // ，
-        || c == '\u{FF1B}' // ；
-        || c == '\u{FF1A}' // ：
-        || c == '\u{FF01}' // ！
-        || c == '\u{FF1F}' // ？
-        || c == '\u{FF09}' // ）
-        || c == '\u{FF3D}' // 】
-        || c == '\u{300D}' // 》
-}
-
-fn trim_trailing_punct(s: &str) -> &str {
-    let mut end = s.len();
-    for (byte_offset, c) in s.char_indices().rev() {
-        if is_trailing_punct(c) {
-            end = byte_offset;
-        } else {
-            break;
-        }
-    }
-    &s[..end]
-}
-
-struct ParsedPipeTodo {
-    title: String,
-    priority: Priority,
-    due_date: Option<String>,
-    tags: Vec<String>,
-    project: Option<String>,
-}
-
-/// Parse a quick-input string for pipe mode, mirroring the GUI's parseTodoInput().
-/// Extracts P0-P3 priority, due:/due： dates, #tags, project: — the rest becomes the title.
-fn parse_pipe_todo(raw: &str) -> ParsedPipeTodo {
-    let mut priority = Priority::P2;
-    let mut due_date = None;
-    let mut tags: Vec<String> = Vec::new();
-    let mut project = None;
-    let mut title_parts: Vec<&str> = Vec::new();
-
-    let tokens: Vec<&str> = raw.split_whitespace().collect();
-    let mut i = 0;
-    while i < tokens.len() {
-        let token = tokens[i];
-
-        // Priority keywords
-        if token == "P0" {
-            priority = Priority::P0;
-        } else if token == "P1" {
-            priority = Priority::P1;
-        } else if token == "P3" {
-            priority = Priority::P3;
-        } else if token == "P2" {
-            priority = Priority::P2;
-        }
-        // due: / due： prefix — value may be in same token or the next
-        else if let Some(val) = token.strip_prefix("due:").or_else(|| token.strip_prefix("due：")) {
-            let val = val.trim();
-            if !val.is_empty() {
-                due_date = Some(parse_natural_date(val).unwrap_or_else(|| val.to_string()));
-            } else if i + 1 < tokens.len() {
-                i += 1;
-                let next = tokens[i];
-                due_date = Some(parse_natural_date(next).unwrap_or_else(|| next.to_string()));
-            }
-        }
-        // project: prefix — value may be in same token or the next
-        else if let Some(val) = token.strip_prefix("project:").or_else(|| token.strip_prefix("project：")) {
-            let val = val.trim();
-            if !val.is_empty() {
-                project = Some(val.to_string());
-            } else if i + 1 < tokens.len() {
-                i += 1;
-                project = Some(tokens[i].to_string());
-            }
-        }
-        // #tag — strip leading # then trim trailing punctuation
-        else if let Some(tag) = token.strip_prefix('#') {
-            let tag = trim_trailing_punct(tag.trim());
-            if !tag.is_empty() {
-                tags.push(tag.to_string());
-            }
-        }
-        // Plain title word
-        else {
-            title_parts.push(token);
-        }
-
-        i += 1;
-    }
-
-    let title = if title_parts.is_empty() {
-        raw.to_string()
-    } else {
-        title_parts.join(" ")
-    };
-
-    ParsedPipeTodo { title, priority, due_date, tags, project }
-}
-
-struct ParsedPipeIdea {
-    title: String,
-    source: Option<String>,
-    tags: Vec<String>,
-    project: Option<String>,
-}
-
-/// Parse pipe input for idea: extracts #tags, source:, project: — the rest becomes title.
-fn parse_pipe_idea(raw: &str) -> ParsedPipeIdea {
-    let mut source = None;
-    let mut tags: Vec<String> = Vec::new();
-    let mut project = None;
-    let mut title_parts: Vec<&str> = Vec::new();
-
-    let tokens: Vec<&str> = raw.split_whitespace().collect();
-    let mut i = 0;
-    while i < tokens.len() {
-        let token = tokens[i];
-        if let Some(val) = token.strip_prefix("source:").or_else(|| token.strip_prefix("source：")) {
-            let val = val.trim();
-            if !val.is_empty() {
-                source = Some(val.to_string());
-            } else if i + 1 < tokens.len() {
-                i += 1;
-                source = Some(tokens[i].to_string());
-            }
-        } else if let Some(val) = token.strip_prefix("project:").or_else(|| token.strip_prefix("project：")) {
-            let val = val.trim();
-            if !val.is_empty() {
-                project = Some(val.to_string());
-            } else if i + 1 < tokens.len() {
-                i += 1;
-                project = Some(tokens[i].to_string());
-            }
-        } else if let Some(tag) = token.strip_prefix('#') {
-            let tag = trim_trailing_punct(tag.trim());
-            if !tag.is_empty() {
-                tags.push(tag.to_string());
-            }
-        } else {
-            title_parts.push(token);
-        }
-        i += 1;
-    }
-
-    let title = if title_parts.is_empty() { raw.to_string() } else { title_parts.join(" ") };
-    ParsedPipeIdea { title, source, tags, project }
-}
-
-struct ParsedPipeLog {
-    content: String,
-    mood: Option<String>,
-    tags: Vec<String>,
-    project: Option<String>,
-}
-
-/// Parse pipe input for log: extracts #tags, mood:, project: — the rest becomes content.
-fn parse_pipe_log(raw: &str) -> ParsedPipeLog {
-    let mut mood = None;
-    let mut tags: Vec<String> = Vec::new();
-    let mut project = None;
-    let mut content_parts: Vec<&str> = Vec::new();
-
-    let tokens: Vec<&str> = raw.split_whitespace().collect();
-    let mut i = 0;
-    while i < tokens.len() {
-        let token = tokens[i];
-        if let Some(val) = token.strip_prefix("mood:").or_else(|| token.strip_prefix("mood：")) {
-            let val = val.trim();
-            if !val.is_empty() {
-                mood = Some(val.to_string());
-            } else if i + 1 < tokens.len() {
-                i += 1;
-                mood = Some(tokens[i].to_string());
-            }
-        } else if let Some(val) = token.strip_prefix("project:").or_else(|| token.strip_prefix("project：")) {
-            let val = val.trim();
-            if !val.is_empty() {
-                project = Some(val.to_string());
-            } else if i + 1 < tokens.len() {
-                i += 1;
-                project = Some(tokens[i].to_string());
-            }
-        } else if let Some(tag) = token.strip_prefix('#') {
-            let tag = trim_trailing_punct(tag.trim());
-            if !tag.is_empty() {
-                tags.push(tag.to_string());
-            }
-        } else {
-            content_parts.push(token);
-        }
-        i += 1;
-    }
-
-    let content = if content_parts.is_empty() { raw.to_string() } else { content_parts.join(" ") };
-    ParsedPipeLog { content, mood, tags, project }
-}
-
-// ─── Natural date parser ───
-
-fn parse_natural_date(text: &str) -> Option<String> {
-    static DATE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap());
-    static NUM_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\d+)\s*(天|d|day|days)?(后|後| later)?$").unwrap());
-    static NEXT_EN_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^next\s+(\w+)").unwrap());
-    static NEXT_ZH_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^下(?:周|星期|礼拜)?(.)").unwrap());
-    static THIS_ZH_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?:这|本|这周|本周|这星期|本星期)(?:周|星期|礼拜)?(.)").unwrap());
-
-    let today = Utc::now().date_naive();
-    let t = text.trim();
-
-    // Already yyyy-MM-dd
-    if DATE_RE.is_match(t) {
-        return Some(t.to_string());
-    }
-
-    // Numeric: N (days later)
-    if let Some(cap) = NUM_RE.captures(t) {
-        let n: i64 = cap[1].parse().unwrap_or(0);
-        return Some((today + Duration::days(n)).format("%Y-%m-%d").to_string());
-    }
-
-    // Day-of-week maps
-    let dow_en: Vec<(&str, Weekday)> = vec![
-        ("mon", Weekday::Mon), ("monday", Weekday::Mon),
-        ("tue", Weekday::Tue), ("tuesday", Weekday::Tue),
-        ("wed", Weekday::Wed), ("wednesday", Weekday::Wed),
-        ("thu", Weekday::Thu), ("thursday", Weekday::Thu),
-        ("fri", Weekday::Fri), ("friday", Weekday::Fri),
-        ("sat", Weekday::Sat), ("saturday", Weekday::Sat),
-        ("sun", Weekday::Sun), ("sunday", Weekday::Sun),
-    ];
-    let dow_zh: Vec<(&str, Weekday)> = vec![
-        ("一", Weekday::Mon), ("二", Weekday::Tue), ("三", Weekday::Wed),
-        ("四", Weekday::Thu), ("五", Weekday::Fri), ("六", Weekday::Sat),
-        ("日", Weekday::Sun), ("天", Weekday::Sun),
-    ];
-
-    // Absolute keywords
-    match t {
-        "今天" | "today" => return Some(today.format("%Y-%m-%d").to_string()),
-        "明天" | "tomorrow" => return Some((today + Duration::days(1)).format("%Y-%m-%d").to_string()),
-        "后天" | "後天" => return Some((today + Duration::days(2)).format("%Y-%m-%d").to_string()),
-        "大后天" | "大後天" => return Some((today + Duration::days(3)).format("%Y-%m-%d").to_string()),
-        "昨天" | "yesterday" => return Some((today + Duration::days(-1)).format("%Y-%m-%d").to_string()),
-        "下周" | "下週" | "next week" => {
-            let delta = 7 - today.weekday().num_days_from_monday() as i64;
-            if delta <= 0 { return Some((today + Duration::days(delta + 7)).format("%Y-%m-%d").to_string()); }
-            return Some((today + Duration::days(delta)).format("%Y-%m-%d").to_string());
-        }
-        _ => {}
-    }
-
-    // "next <weekday>"
-    if let Some(cap) = NEXT_EN_RE.captures(t) {
-        let w = cap[1].to_lowercase();
-        for (key, wd) in &dow_en {
-            if w == *key {
-                let target = wd.num_days_from_monday() as i64;
-                let cur = today.weekday().num_days_from_monday() as i64;
-                let mut delta = target - cur;
-                if delta <= 0 { delta += 7; }
-                return Some((today + Duration::days(delta)).format("%Y-%m-%d").to_string());
-            }
-        }
-    }
-
-    // "下<星期X>" / "下周<X>"
-    if let Some(cap) = NEXT_ZH_RE.captures(t) {
-        let ch = &cap[1];
-        for (key, wd) in &dow_zh {
-            if ch == *key {
-                let target = wd.num_days_from_monday() as i64;
-                let cur = today.weekday().num_days_from_monday() as i64;
-                let mut delta = target - cur;
-                if delta <= 0 { delta += 7; }
-                return Some((today + Duration::days(delta)).format("%Y-%m-%d").to_string());
-            }
-        }
-    }
-
-    // "本周X" / "这周X"
-    if let Some(cap) = THIS_ZH_RE.captures(t) {
-        let ch = &cap[1];
-        for (key, wd) in &dow_zh {
-            if ch == *key {
-                let target = wd.num_days_from_monday() as i64;
-                let cur = today.weekday().num_days_from_monday() as i64;
-                let delta = target - cur;
-                return Some((today + Duration::days(delta)).format("%Y-%m-%d").to_string());
-            }
-        }
-    }
-
-    None
-}
 
 // ═══════════════════════════════════════════════════════════
 // ─── Todo ───
@@ -404,7 +102,7 @@ fn handle_todo_add(args: &TodoAddArgs, conn: &rusqlite::Connection) -> rusqlite:
     };
     let icon = priority.icon();
 
-    let due_date = args.due.as_deref().and_then(parse_natural_date);
+    let due_date = args.due.as_deref().and_then(starcatch_core::parser::parse_natural_date);
 
     let todo = Todo {
         id: uuid::Uuid::new_v4().to_string(),
@@ -476,7 +174,7 @@ fn handle_todo_edit(args: &TodoEditArgs, conn: &rusqlite::Connection, json: bool
         _ => Priority::P2,
     });
 
-    let due_date = args.due.as_deref().and_then(parse_natural_date);
+    let due_date = args.due.as_deref().and_then(starcatch_core::parser::parse_natural_date);
 
     let update = TodoUpdate {
         title: args.title.clone(),
@@ -825,7 +523,7 @@ fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> rusqlite::Result<()> {
 
     match args.r#type.as_str() {
         "todo" => {
-            let parsed = parse_pipe_todo(&input);
+            let parsed = starcatch_core::parser::parse_pipe_todo(&input);
             let todo = Todo {
                 id: uuid::Uuid::new_v4().to_string(),
                 title: parsed.title,
@@ -842,7 +540,7 @@ fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> rusqlite::Result<()> {
             println!("✅ Todo (from pipe): {} {}", todo.priority.icon(), todo.title);
         }
         "idea" => {
-            let parsed = parse_pipe_idea(&input);
+            let parsed = starcatch_core::parser::parse_pipe_idea(&input);
             let idea = Idea {
                 id: uuid::Uuid::new_v4().to_string(),
                 title: parsed.title,
@@ -857,7 +555,7 @@ fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> rusqlite::Result<()> {
             println!("💡 Idea (from pipe): {}", idea.title);
         }
         "log" => {
-            let parsed = parse_pipe_log(&input);
+            let parsed = starcatch_core::parser::parse_pipe_log(&input);
             let log = Log {
                 id: uuid::Uuid::new_v4().to_string(),
                 content: parsed.content,

@@ -22,4 +22,7 @@ uuid = { version = "1", features = ["v4"] }
 # CSV
 csv = "1"
 
+# Regex (for natural date parsing)
+regex = "1"
+
 [dev-dependencies]

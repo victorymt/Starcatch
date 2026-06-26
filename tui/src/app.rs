@@ -1,8 +1,6 @@
 use starcatch_core::db::{self};
 use starcatch_core::models::*;
 
-use crate::input_parser;
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ActiveView {
     Todo,
@@ -128,11 +126,11 @@ impl App {
 
         match self.input_type {
             InputType::Todo => {
-                let parsed = input_parser::parse_todo_input(&text);
+                let parsed = starcatch_core::parser::parse_pipe_todo(&text);
                 let todo = Todo {
                     id: uuid::Uuid::new_v4().to_string(),
                     title: parsed.title,
-                    description: parsed.description,
+                    description: None,
                     priority: parsed.priority,
                     status: TodoStatus::Pending,
                     due_date: parsed.due_date,
@@ -148,11 +146,11 @@ impl App {
                 self.set_status("Todo added");
             }
             InputType::Idea => {
-                let parsed = input_parser::parse_idea_input(&text);
+                let parsed = starcatch_core::parser::parse_pipe_idea(&text);
                 let idea = Idea {
                     id: uuid::Uuid::new_v4().to_string(),
                     title: parsed.title,
-                    content: parsed.content,
+                    content: None,
                     source: parsed.source,
                     context_window: None,
                     tags: parsed.tags,
@@ -166,7 +164,7 @@ impl App {
                 self.set_status("Idea added");
             }
             InputType::Log => {
-                let parsed = input_parser::parse_log_input(&text);
+                let parsed = starcatch_core::parser::parse_pipe_log(&text);
                 let log = Log {
                     id: uuid::Uuid::new_v4().to_string(),
                     content: parsed.content,
