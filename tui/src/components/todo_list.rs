@@ -101,7 +101,7 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
 
     // Show key hints at bottom
     let hint = Line::from(vec![Span::styled(
-        " Enter:toggle done  d:delete  a:archive  1-3:switch view",
+        " Enter:toggle  e:edit  d:del  a:archive  1-3:view",
         styles::dim_text_style(),
     )]);
     if area.height > 3 {

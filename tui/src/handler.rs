@@ -30,21 +30,24 @@ fn handle_key(app: &mut App, key: KeyEvent) -> bool {
         return true;
     }
 
-    // ── Ctrl+T/I/L: switch input type (always active) ────────────
-    // Note: Ctrl+I = Tab (ASCII 0x09) in most terminals, so Tab is also mapped here.
-    let ctrl_i_pressed = matches!((key.code, key.modifiers), (KeyCode::Tab, _) | (KeyCode::Char('i'), KeyModifiers::CONTROL));
-    if key.modifiers == KeyModifiers::CONTROL || ctrl_i_pressed {
+    // ── Auto-clear status message & confirm on next interaction ─
+    if app.status_message.is_some() {
+        app.clear_status();
+    }
+    // Reset delete-confirm if pressing any key other than 'd'
+    if app.confirm_delete && !matches!((key.code, key.modifiers), (KeyCode::Char('d'), KeyModifiers::NONE)) {
+        app.confirm_delete = false;
+    }
+
+    // ── Ctrl+T/I/L: switch input type (only in command mode) ─────
+    if !app.editing && key.modifiers == KeyModifiers::CONTROL {
         match key.code {
             KeyCode::Char('t') => app.input_type = InputType::Todo,
-            _ if ctrl_i_pressed => app.input_type = InputType::Idea,
             KeyCode::Char('i') => app.input_type = InputType::Idea,
             KeyCode::Char('l') => app.input_type = InputType::Log,
             _ => {}
         }
-        // Don't return for Tab in command mode (Tab also cycles views)
-        if !ctrl_i_pressed {
-            return false;
-        }
+        return false;
     }
 
     // ── Editing mode: / entered ────────────────────────────────
@@ -130,7 +133,22 @@ fn handle_key(app: &mut App, key: KeyEvent) -> bool {
 
         // Actions
         KeyCode::Enter => {
-            app.toggle_selected_todo();
+            match app.active_view {
+                ActiveView::Todo => app.toggle_selected_todo(),
+                ActiveView::Idea => {
+                    if let Some(idea) = app.ideas.get(app.selected_index) {
+                        let tags = if idea.tags.is_empty() { "".to_string() } else { format!(" #{}", idea.tags.join(" #")) };
+                        app.set_status(&format!("💡 {} from:{} project:{}{}", idea.title, idea.source.as_deref().unwrap_or("-"), idea.project.as_deref().unwrap_or("-"), tags));
+                    }
+                }
+                ActiveView::Log => {
+                    if let Some(log) = app.logs.get(app.selected_index) {
+                        let mood = log.mood.as_deref().unwrap_or("-");
+                        let preview = if log.content.len() > 60 { format!("{}...", &log.content[..57]) } else { log.content.clone() };
+                        app.set_status(&format!("📝 mood:{} {}", mood, preview));
+                    }
+                }
+            }
         }
         KeyCode::Char('e') => {
             app.start_edit();
@@ -162,7 +180,7 @@ fn handle_key(app: &mut App, key: KeyEvent) -> bool {
         // Help
         KeyCode::Char('?') => {
             app.set_status(
-                "/:Input  Tab:Switch  ↑↓:Nav  Enter:Toggle  d:Del  a:Archive  q:Quit",
+                "/:Input  Tab:Switch  ↑↓/jk:Nav  Enter:Toggle  e:Edit  d:Del  a:Archive  1-3:View  q:Quit",
             );
         }
 

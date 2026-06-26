@@ -47,6 +47,9 @@ pub struct App {
     pub input_type: InputType,
     pub input_cursor: usize,
 
+    // Confirmations
+    pub confirm_delete: bool,  // wait for second 'd' to confirm
+
     // Status
     pub status_message: Option<String>,
     pub needs_refresh: bool,
@@ -77,6 +80,7 @@ impl App {
             input_text: String::new(),
             input_type: InputType::Todo,
             input_cursor: 0,
+            confirm_delete: false,
             status_message: None,
             needs_refresh: true,
             toast: None,
@@ -310,6 +314,21 @@ impl App {
         if self.selected_index >= self.current_list_len() {
             return;
         }
+
+        // First 'd': ask for confirmation
+        if !self.confirm_delete {
+            self.confirm_delete = true;
+            let type_name = match self.active_view {
+                ActiveView::Todo => "Todo",
+                ActiveView::Idea => "Idea",
+                ActiveView::Log => "Log",
+            };
+            self.set_status(&format!("Press d again to confirm deleting this {}", type_name));
+            return;
+        }
+
+        // Second 'd': actually delete
+        self.confirm_delete = false;
         let conn = match db::open(&self.db_path) {
             Ok(c) => c,
             Err(_) => return,
