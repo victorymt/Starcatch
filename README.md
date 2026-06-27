@@ -1,90 +1,123 @@
-# Starcatch 星捕
+# ⭐ Starcatch (星捕)
 
 Catch your starlight ideas — Wayland 原生的 idea/todo/log 快速捕获工具。
+
+| 界面 | 描述 |
+|------|------|
+| 💻 **CLI** | Rust 命令行，支持子命令 + pipe 模式 |
+| 🖥️ **TUI** | 终端界面，ratatui + crossterm，支持键盘导航和编辑 |
+| 🗄️ **Core** | 共享 SQLite 数据库 (`rusqlite` + WAL) |
 
 ## 安装
 
 ### 依赖
 
-- **CLI**：Rust 1.96+
-- **GUI**（可选）：Qt 6 (Core, Gui, Widgets, Sql), CMake 3.16+, gcc/clang
+- Rust 1.85+（edition 2024）
 
-Arch Linux：
-```bash
-pacman -S qt6-base cmake gcc
-```
-
-### 一键安装（推荐）
+### 一键安装
 
 ```bash
-./install.sh                          # 只装 CLI
-INSTALL_GUI=1 ./install.sh            # CLI + Qt GUI
-INSTALL_COMPLETIONS=1 ./install.sh    # CLI + bash 补全
+./install.sh                            # 只装 CLI
+INSTALL_TUI=1 ./install.sh              # CLI + TUI
+INSTALL_COMPLETIONS=1 ./install.sh      # CLI + bash 补全
 ```
-
-脚本自动完成：编译 release 版 → 安装到 `~/.local/bin/` → 创建数据目录 → PATH 检查。
 
 ### 手动安装
 
-**CLI：**
 ```bash
 cargo build --release
 cp target/release/starcatch ~/.local/bin/
-```
-
-**GUI（可选）：**
-```bash
-cd qt
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-cp build/starcatch-qt ~/.local/bin/
+# TUI（可选）
+cargo build --release -p starcatch-tui
+cp target/release/starcatch-tui ~/.local/bin/
 ```
 
 ## 使用
 
+### CLI
+
 ```bash
-# CLI
-starcatch todo add "买牛奶" --due 明天 --priority P1
-starcatch todo list
-starcatch idea add "做个AI助手" --tag tech,ai
+# 📋 Todo
+starcatch todo add "买牛奶" --due 明天 -p P1 --tag 购物
+starcatch todo list                    # pending + done
+starcatch todo done <id>               # 标记完成
+starcatch todo archive <id>            # 归档
+
+# 💭 Idea
+starcatch idea add "做个AI助手" --source 洗澡 --tag AI
+
+# 📓 Log
 starcatch log add "今天写了代码" --mood happy
 
-# GUI
-starcatch-qt
+# 🚰 Pipe 模式
+echo "买牛奶和面包" | starcatch pipe todo
+echo "今天搞定了 TUI 实现" | starcatch pipe log
+
+# 🔍 搜索 / 📊 统计 / 📤 导出
+starcatch search "关键词"
+starcatch stats
+starcatch export --format json
+starcatch export --format csv
 ```
 
-### 快速输入语法（GUI）
+### TUI
+
+```bash
+starcatch-tui
+```
+
+| 快捷键 | 功能 |
+|--------|------|
+| `/` | 进入输入模式 |
+| `Tab` / `←` `→` | 切换视图 (Todo/Idea/Log) |
+| `↑` `↓` / `j` `k` | 导航条目 |
+| `Enter` | 标记 todo 完成 / 查看详情 |
+| `e` | 编辑当前条目 |
+| `d` (`d` 两次) | 删除（需确认） |
+| `a` | 归档 todo |
+| `1` `2` `3` | 快速切换视图 |
+| `?` | 显示帮助 |
+| `q` / `Ctrl+C` | 退出 |
+
+编辑模式下：`Ctrl+A` 行首 / `Ctrl+E` 行尾 / `Ctrl+K` 删至行末 / `Ctrl+T/I/L` 切换输入类型。
+
+### 快速输入语法
 
 | 语法 | 说明 |
 |------|------|
 | `P0` `P1` `P2` `P3` | 优先级 |
-| `due:明天` | 截止日期 |
+| `due:明天` | 截止日期（自然语言） |
 | `#标签` | 标签 |
-| `/t` `/i` `/l` | 切换输入类型 |
-| `/help` | 查看命令 |
+| `project:项目名` | 所属项目 |
+| `mood:happy` | 心情（仅 Log） |
+| `source:来源` | 来源（仅 Idea） |
+| `标题 \| P1 #tag due:明天` | 编辑模式：`\|` 左侧为原样标题 |
 
-### 命令
+## 数据
 
-| 命令 | 说明 |
-|------|------|
-| `/help` | 可用命令 |
-| `/theme` | 切换主题 |
-| `/search` | 搜索 |
-| `/stats` | 统计 |
-| `/export` | 导出 Markdown |
+存储在 `~/.local/share/starcatch/starcatch.db`，CLI 与 TUI 共享（通过 `-D <path>` 覆盖）。
 
-### 快捷键
+## 项目结构
 
-| 快捷键 | 功能 |
-|--------|------|
-| `Ctrl+1-4` | 切换标签 |
-| `Ctrl+N` | 聚焦输入 |
-| `Ctrl+Shift+T` | 切换主题 |
-| `j/k` `↓/↑` | 导航条目 |
-| `Enter` | 勾选 todo |
-| `Tab` | 命令补全 |
-| `Esc` | 关闭 |
-
-### 数据
-
-存储在 `~/.local/share/starcatch/starcatch.db`，CLI 与 GUI 共享。
+```
+├── Cargo.toml                     # 工作区根
+├── src/                           # CLI 入口
+│   ├── main.rs
+│   └── cli.rs
+├── starcatch-core/                # 共享核心库
+│   └── src/
+│       ├── lib.rs
+│       ├── db.rs                  # SQLite CRUD
+│       ├── parser.rs              # 管道输入解析
+│       └── models/                # Todo, Idea, Log
+├── tui/                           # 终端界面
+│   └── src/
+│       ├── main.rs
+│       ├── app.rs
+│       ├── event.rs
+│       ├── handler.rs
+│       ├── ui.rs
+│       ├── styles.rs
+│       └── components/
+└── qt/                            # Qt GUI（历史）
+```

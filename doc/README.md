@@ -1,208 +1,93 @@
-# ⭐ Starcatch (星捕)
+# ⭐ Starcatch (星捕) — 文档
 
-> **Catch your starlight ideas.** — 捕捉你的灵感星光 ✨
+> Catch your starlight ideas.
 
-**Starcatch** 是一个 Wayland 原生的灵感捕捉工具，由 **溯星 (Sù Xīng)** 与 **星渺 (Xīng Miǎo)** 共同设计。
+名称源自《彼方的她-Aliya》——溯星逆流追寻星渺，Starcatch 捕捉途中洒落的星光。
 
-名字源自《彼方的她-Aliya》——溯星逆流追寻星渺，而 Starcatch 就是捕捉途中洒落的星光。
+## 快速导航
 
----
+- **[README.md](../README.md)** — 安装、使用、快捷键
+- **[install.sh](../install.sh)** — 一键安装脚本
 
-## 🌟 三大记录类型
+## 三大记录类型
 
 ### 📋 Todo — 任务管理
 
 | 特性 | 说明 |
 |------|------|
 | 优先级 | **P0** 🔴 紧急 / **P1** 🟡 重要 / **P2** 🟢 一般 / **P3** ⚪ 低优 |
-| 状态 | ⬜ **Pending** 待办 → ✅ **Done** 已完成 → 📦 **Archived** 已归档 |
-| 截止日期 | 可选，`--due YYYY-MM-DD` |
-| 标签 | 逗号分隔，`--tag 工作,项目` |
-| 分组 | 所属项目，`-P project-name` |
+| 状态 | ⬜ Pending → ✅ Done → 📦 Archived |
+| 截止日期 | 可选，自然语言（`明天`、`3天`、`下周一`） |
+| 标签 | 逗号分隔 |
+| 项目 | 所属项目 |
 
-#### 生命周期
-```
-                     ┌──────────────┐
-    starcatch todo add               │
-        │                            │
-        ▼                            │
-    ┌─────────┐   todo done     ┌──────────┐
-    │ Pending │ ──────────────▶ │   Done   │
-    │ (待办)  │                 │ (已完成)  │
-    └─────────┘                 └──────────┘
-        │                            │
-        │ todo archive               │ todo archive
-        ▼                            ▼
-    ┌──────────┐               ┌──────────┐
-    │ Archived │               │ Archived │
-    │ (已归档) │               │ (已归档) │
-    └──────────┘               └──────────┘
-```
+**生命周期：** 所有 To-do 始于 Pending → Done（标记完成，保留记录）→ Archived（隐藏，不删除）。
 
-- **Done**: 做完了，保留在日常列表作为记录 ✅
-- **Archived**: 不删但不想每天看见，从默认列表隐藏 📦
-
-#### list 过滤规则
-
-| 命令 | 显示内容 | 场景 |
-|------|---------|------|
-| `todo list` | pending + done（默认） | 日常查看 |
-| `todo list --pending` | 仅待办 | 专注未完成 |
-| `todo list --done` | 仅已完成 | 回顾成果 |
-| `todo list --archived` | 仅已归档 | 翻旧账 |
-| `todo list --all` | 全部（含 archived） | 全量查看 |
-| `todo list --tag 文档` | 按标签过滤 | 按标签筛选 |
-
----
+**列表过滤：**
+| 选项 | 显示内容 |
+|------|---------|
+| (默认) | pending + done |
+| `--pending` | 仅待办 |
+| `--done` | 仅已完成 |
+| `--archived` | 仅已归档 |
+| `--all` | 全部（含 archived） |
+| `--tag` `--project` | 按标签/项目筛选 |
 
 ### 💭 Idea — 灵感闪念
 
-| 特性 | 说明 |
-|------|------|
-| 标题 | 一句话必填 |
-| 内容 | 可选展开描述 |
-| 来源 | `--source 看书/聊天/洗澡/做梦...` |
-| 标签 | 逗号分隔 |
-| 日期 | 自动记录 |
-| 上下文 | 计划中：自动捕获当前窗口/浏览器标签 |
-
----
+标题（必填）+ 内容（可选）+ 来源（`--source`）+ 标签 + 自动记录时间。
 
 ### 📓 Log — 随手记 / 日记
 
-| 特性 | 说明 |
-|------|------|
-| 内容 | Markdown 正文 |
-| 心情 | `--mood happy/sad/excited...` |
-| 标签 | 逗号分隔 |
-| 日期 | 自动记录 |
+内容（必填）+ 心情（`--mood`）+ 标签。
 
-适合：工作日志、日记、随手笔记、购物清单
-
----
-
-## 🖥️ 交互模式
-
-### 💻 CLI 模式
+## CLI 命令一览
 
 ```bash
-# 📋 Todo
-starcatch todo add "写设计文档" -p P1 --due 2026-06-30 --tag 文档,设计
-starcatch todo add "实现 quick capture" -p P0 --due 2026-07-01 --tag 功能,UI
-starcatch todo list                    # pending + done
-starcatch todo list --pending          # 仅待办
-starcatch todo list --done             # 仅已完成
-starcatch todo list --tag 文档         # 按标签
-starcatch todo done <id>               # 标记完成
-starcatch todo archive <id>            # 归档
-
-# 💭 Idea
-starcatch idea add "好想法！" --source 洗澡 --tag AI,未来
-starcatch idea list                    # 最近 7 天
-starcatch idea list --days 30          # 最近 30 天
-
-# 📓 Log
-starcatch log add "今天收获满满" --mood happy --tag 开发
-starcatch log list                     # 今天
-starcatch log list --days 7            # 最近 7 天
+starcatch todo add|list|edit|show|done|archive|reopen|delete
+starcatch idea add|list|edit|show|delete
+starcatch log   add|list|edit|show|delete
+starcatch pipe  todo|idea|log       # stdin
+starcatch search <query>
+starcatch stats
+starcatch export --format json|csv
+starcatch completions bash|zsh|fish|elvish|powershell
 ```
 
-### 🚰 Pipe 模式 — 与任何程序互动
+## TUI 快捷键
 
-```bash
-# 从任何程序 pipe 数据进来
-echo "灵感来自梦中" | starcatch pipe idea
-echo "买牛奶和面包" | starcatch pipe todo
-echo "今天搞定了 Wayland rendering" | starcatch pipe log
+| 快捷键 | 功能 |
+|--------|------|
+| `/` | 进入输入模式 |
+| `Tab` / `←` `→` | 切换视图 |
+| `↑` `↓` / `j` `k` | 导航 |
+| `Enter` | 标记完成 / 查看详情 |
+| `e` | 编辑 |
+| `d`（两次） | 删除 |
+| `a` | 归档 |
+| `1` `2` `3` | 快速切视图 |
+| `?` | 帮助 |
+| `q` / `Ctrl+C` | 退出 |
 
-# 组合其他命令
-curl -s https://api.example.com/quote | starcatch pipe idea --source web
-grep "TODO" src/main.rs | starcatch pipe todo
-```
-
-### 🪟 GUI 模式 — Wayland 原生窗口
-- 无参数启动 → 浮动窗口
-- 顶部 Tab 切换 Todo / Idea / Log
-- 底部快速输入框，选择类型即可添加
-- Todo 优先级彩色标记，checkbox 勾选完成
-- Idea / Log 时间线视图
-- **中文字体支持**（自动加载 NotoSansCJK）
-
-```bash
-# 启动 GUI（需要 --features gui 编译）
-cargo run --features gui
-
-# 或安装后直接运行
-cargo install --path . --features gui
-starcatch
-```
-
----
-
-## 🔌 Emacs 集成（规划中）
-
-| 功能 | 说明 |
-|------|------|
-| 📤 导出 Org-mode | `starcatch export org-mode > todo.org` |
-| 📤 导出 Denote | `starcatch export denote --file ~/denote/` |
-| 🎨 自定义模板 | 用户编写 `.tmpl` 模板文件 |
-| 📥 Emacs → Starcatch | `M-x shell-command` 调用 CLI |
-| ⚡ Org-capture 预设 | 一键 capture 到 Starcatch |
-
----
-
-## 🛠️ 技术栈
+## 技术栈
 
 | 层面 | 选择 |
 |------|------|
-| 语言 | **Rust** 🦀 |
-| GUI | **egui + winit** (Wayland via `wayland-backend`) |
-| 数据库 | **SQLite** (`rusqlite` + WAL mode) |
-| CLI 解析 | **clap** (derive) |
-| 序列化 | **serde** + **serde_json** |
-| UUID | **uuid** v4 |
-| 时间 | **chrono** |
+| CLI | Rust + clap |
+| TUI | ratatui + crossterm |
+| 数据库 | SQLite (rusqlite + WAL) |
+| 序列化 | serde + serde_json |
+| UUID | uuid v4 |
+| 时间 | chrono |
 
----
-
-## 🗺️ 开发路线图
+## 项目结构
 
 ```
-Phase 1 — CLI MVP 🌱    ✅ SQLite + 模型 + CLI CRUD + Pipe 模式
-Phase 2 — GUI 🖥️        ─ egui Wayland 窗口 + 热键 + 视图
-Phase 3 — Emacs 🔌       ─ 模板引擎 + Org-mode/Denote 导出 + Elisp
-Phase 4 — 进阶 🚀        ─ 全文搜索 + Unix Socket 守护 + 统计面板
+├── Cargo.toml              # 工作区
+├── src/                    # CLI
+│   ├── main.rs
+│   └── cli.rs
+├── starcatch-core/         # 共享核心（模型 + DB + 解析器）
+├── tui/                    # 终端界面
+└── qt/                     # Qt GUI（存档）
 ```
-
----
-
-## 🏗️ 项目结构
-
-```
-/data/project/Starcatch/
-├── Cargo.toml
-├── src/
-│   ├── main.rs           # 入口：CLI args → 分发
-│   ├── cli.rs            # CLI 参数定义 (clap)
-│   ├── db.rs             # SQLite 操作 (migrate + CRUD)
-│   └── models/
-│       ├── mod.rs
-│       ├── todo.rs       # Todo 模型
-│       ├── idea.rs       # Idea 模型
-│       └── log.rs        # Log 模型
-├── doc/
-│   └── README.md
-└── templates/             # 用户自定义模板 (规划中)
-```
-
----
-
-## 🔮 命名
-
-| 语言 | 名字 |
-|------|------|
-| English | **Starcatch** |
-| 中文 | **星捕** |
-| 命令行 | `starcatch` |
-
-> *Starcatch — Catch your starlight ideas.* 💫

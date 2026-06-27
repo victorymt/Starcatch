@@ -4,17 +4,16 @@ set -euo pipefail
 # Starcatch 安装脚本
 # ================
 # 编译 Rust CLI 并安装到 ~/.local/bin/starcatch。
-# 可选编译 Qt 6 GUI 和生成 shell 补全。
+# 可选编译 TUI 和生成 shell 补全。
 #
 # 用法:
 #   ./install.sh                          # 只装 CLI
-#   INSTALL_GUI=1 ./install.sh            # CLI + Qt GUI
+#   INSTALL_TUI=1 ./install.sh            # CLI + TUI
 #   INSTALL_COMPLETIONS=1 ./install.sh    # CLI + bash 补全
-#   INSTALL_GUI=1 INSTALL_COMPLETIONS=1 ./install.sh   # 全部
+#   INSTALL_TUI=1 INSTALL_COMPLETIONS=1 ./install.sh   # 全部
 #
 # 前置依赖:
 #   - Rust 工具链 (cargo)
-#   - Qt 6 (可选，仅当 INSTALL_GUI=1 时需要 cmake + Qt6 库)
 
 INSTALL_DIR="${HOME}/.local/bin"
 DATA_DIR="${HOME}/.local/share/starcatch"
@@ -51,26 +50,16 @@ if [[ ":$PATH:" != *":${INSTALL_DIR}:"* ]]; then
     echo "    export PATH=\"${INSTALL_DIR}:\$PATH\""
 fi
 
-# ── Qt GUI (optional) ────────────────────────────────────────────────
-if [ "${INSTALL_GUI:-0}" = "1" ]; then
-    echo ""
-    echo "[3/3] Building Qt GUI…"
-    cd "$(dirname "$0")/qt"
-    cmake -B build
-    cmake --build build
-    echo "       → qt/build/starcatch-qt"
-else
-    echo ""
-    echo "[3/3] Qt GUI skipped (set INSTALL_GUI=1 to build it)"
-fi
-
 # ── TUI (optional) ───────────────────────────────────────────────────
 if [ "${INSTALL_TUI:-0}" = "1" ]; then
     echo ""
-    echo "[+] Building TUI…"
+    echo "[3/3] Building TUI…"
     cargo build --release -p starcatch-tui
     cp "target/release/starcatch-tui" "${INSTALL_DIR}/starcatch-tui"
     echo "       → ${INSTALL_DIR}/starcatch-tui"
+else
+    echo ""
+    echo "[3/3] TUI skipped (set INSTALL_TUI=1 to build it)"
 fi
 
 # ── Shell completions (optional) ─────────────────────────────────────
