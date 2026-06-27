@@ -47,7 +47,7 @@ fn main() {
         None => {
             eprintln!("🌙 Starcatch 星捕 — No command given.");
             eprintln!("   Run `starcatch --help` to see available commands.");
-            eprintln!("   Or use `starcatch-qt` (in the qt/ directory) for the GUI.");
+            eprintln!("   Or run `starcatch-tui` for the terminal interface.");
             Ok(())
         }
     };
@@ -416,8 +416,8 @@ fn handle_log(cmd: &LogCommands, db_path: Option<&str>, json: bool) -> Result<()
             if json {
                 println!("{}", serde_json::to_string_pretty(&log)?);
             } else {
-                let mood_icon = log.mood.as_deref().unwrap_or("");
-                println!("📓 Log saved {}{}", mood_icon, if !mood_icon.is_empty() { " " } else { "" });
+                let preview = starcatch_core::safe_truncate_bytes(&log.content, 60);
+                println!("📓 Log saved: {}", preview);
             }
             Ok(())
         }
@@ -514,7 +514,7 @@ fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> Result<()> {
         .read_to_string(&mut input)
         .context("stdin read error")?;
 
-    let input = input.trim().to_string();
+    let input = input.trim_end().to_string();
     if input.is_empty() {
         eprintln!("⚠️  No input from pipe.");
         return Ok(());
@@ -600,10 +600,8 @@ fn handle_search(args: &SearchArgs, db_path: Option<&str>, json: bool) -> Result
             };
             let sub = if r.subtitle.is_empty() {
                 "".to_string()
-            } else if r.subtitle.len() > 60 {
-                format!(" — {}...", &r.subtitle[..60])
             } else {
-                format!(" — {}", r.subtitle)
+                format!(" — {}", safe_truncate_bytes(&r.subtitle, 63))
             };
             println!("  {} [{}] {}{}", type_icon, r.entity_type, r.title, sub);
             println!("      id: {} | {}", r.id, r.created_at);

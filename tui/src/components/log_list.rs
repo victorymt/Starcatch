@@ -4,7 +4,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Padding, Paragraph};
 use ratatui::Frame;
 
-use crate::app::{App, safe_truncate_bytes};
+use crate::app::App;
+use starcatch_core::safe_truncate_bytes;
 use crate::styles;
 
 pub fn draw(frame: &mut Frame, area: Rect, app: &App) {

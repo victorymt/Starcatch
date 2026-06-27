@@ -10,24 +10,6 @@ pub fn char_idx_to_byte(s: &str, char_idx: usize) -> usize {
         .unwrap_or(s.len())
 }
 
-/// Safely truncate a string to at most `max_bytes` bytes, on a character
-/// boundary. If truncation occurs, appends "..." (included in max_bytes).
-/// Always yields valid UTF-8 — walks backward to find a char boundary,
-/// avoiding the byte-slicing panics that raw `&s[..N]` suffers from with
-/// multi-byte UTF-8 (CJK, emoji, etc.).
-pub fn safe_truncate_bytes(s: &str, max_bytes: usize) -> String {
-    if s.len() <= max_bytes {
-        s.to_string()
-    } else {
-        let cutoff = max_bytes.saturating_sub(3); // room for "..."
-        let mut boundary = cutoff;
-        while boundary > 0 && !s.is_char_boundary(boundary) {
-            boundary -= 1;
-        }
-        format!("{}...", &s[..boundary])
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ActiveView {
     Todo,
@@ -482,64 +464,9 @@ mod tests {
 
     #[test]
     fn test_char_idx_to_byte_emoji() {
-        // "😀" is 4 bytes
         let s = "😀hi";
         assert_eq!(char_idx_to_byte(s, 0), 0);
-        assert_eq!(char_idx_to_byte(s, 1), 4); // 'h' at byte 4
-        assert_eq!(char_idx_to_byte(s, 2), 5); // 'i' at byte 5
-    }
-
-    #[test]
-    fn test_safe_truncate_bytes_short() {
-        assert_eq!(safe_truncate_bytes("hello", 10), "hello");
-        assert_eq!(safe_truncate_bytes("", 5), "");
-    }
-
-    #[test]
-    fn test_safe_truncate_bytes_long_ascii() {
-        assert_eq!(safe_truncate_bytes("hello world!", 8), "hello...");
-        // Exactly at boundary
-        assert_eq!(safe_truncate_bytes("abc", 3), "abc");
-        assert_eq!(safe_truncate_bytes("abcd", 3), "..."); // "..." fills all 3 bytes
-    }
-
-    #[test]
-    fn test_safe_truncate_bytes_unicode_no_panic() {
-        // 20 Chinese characters = 60 bytes; truncate at 30 bytes
-        let s = "中".repeat(20);
-        let result = safe_truncate_bytes(&s, 30);
-        assert!(result.ends_with("..."));
-        // 27 bytes of CJK + 3 dots = 30 bytes max
-        assert!(result.len() <= 30);
-    }
-
-    #[test]
-    fn test_safe_truncate_bytes_mixed() {
-        // 'h'(1) 'e'(1) 'l'(1) 'l'(1) 'o'(1) '世'(3) '界'(3) '!'(1) = 12 bytes
-        let s = "hello世界!";
-        let result = safe_truncate_bytes(s, 8);
-        assert_eq!(result, "hello...");
-    }
-
-    #[test]
-    fn test_safe_truncate_bytes_emoji() {
-        let s = "😀😀😀😀😀"; // 5 emoji × 4 bytes = 20 bytes
-        let result = safe_truncate_bytes(s, 15); // room for 3 emoji (12 bytes) + "..."
-        assert!(result.ends_with("..."));
-        assert!(result.len() <= 15);
-    }
-
-    #[test]
-    fn test_safe_truncate_bytes_char_boundary() {
-        // "a" (1B) + "中" (3B) + "b" (1B) = 5 bytes
-        let s = "a中b";
-        // Budget 4: 5 > 4, cutoff=1, boundary=1 (after 'a'), result="a..."
-        assert_eq!(safe_truncate_bytes(s, 4), "a...");
-        // Budget 3: 5 > 3, cutoff=0, boundary=0, result="..."
-        assert_eq!(safe_truncate_bytes(s, 3), "...");
-        // Budget 5: exactly fits, no truncation
-        assert_eq!(safe_truncate_bytes(s, 5), "a中b");
-        // Budget 8: more than enough
-        assert_eq!(safe_truncate_bytes(s, 8), "a中b");
+        assert_eq!(char_idx_to_byte(s, 1), 4);
+        assert_eq!(char_idx_to_byte(s, 2), 5);
     }
 }

@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::app::{ActiveView, App, InputType, safe_truncate_bytes};
+use crate::app::{ActiveView, App, InputType};
+use starcatch_core::safe_truncate_bytes;
 use crate::event::Event;
 
 /// Handle an event, return true if the app should quit.
