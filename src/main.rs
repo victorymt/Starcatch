@@ -508,21 +508,15 @@ fn handle_log(cmd: &LogCommands, db_path: Option<&str>, json: bool) -> Result<()
 // ─── Pipe ───
 // ═══════════════════════════════════════════════════════════
 
-fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> Result<()> {
-    let mut input = String::new();
-    std::io::stdin()
-        .read_to_string(&mut input)
-        .context("stdin read error")?;
-
+/// Internal pipe handler — takes a `&str` directly so it's testable without stdin.
+fn handle_pipe_inner(input: &str, r#type: &str, conn: &rusqlite::Connection) -> Result<()> {
     let input = input.trim_end().to_string();
     if input.is_empty() {
         eprintln!("⚠️  No input from pipe.");
         return Ok(());
     }
 
-    let conn = open_db(db_path)?;
-
-    match args.r#type.as_str() {
+    match r#type {
         "todo" => {
             let parsed = starcatch_core::parser::parse_pipe_todo(&input);
             let todo = Todo {
@@ -537,7 +531,7 @@ fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> Result<()> {
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
             };
-            db::insert_todo(&conn, &todo)?;
+            db::insert_todo(conn, &todo)?;
             println!("✅ Todo (from pipe): {} {}", todo.priority.icon(), todo.title);
         }
         "idea" => {
@@ -552,7 +546,7 @@ fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> Result<()> {
                 project: parsed.project,
                 created_at: Utc::now(),
             };
-            db::insert_idea(&conn, &idea)?;
+            db::insert_idea(conn, &idea)?;
             println!("💡 Idea (from pipe): {}", idea.title);
         }
         "log" => {
@@ -566,7 +560,7 @@ fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> Result<()> {
                 created_at: Utc::now(),
                 updated_at: None,
             };
-            db::insert_log(&conn, &log)?;
+            db::insert_log(conn, &log)?;
             println!("📓 Log (from pipe)");
         }
         other => {
@@ -575,6 +569,16 @@ fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> Result<()> {
+    let mut input = String::new();
+    std::io::stdin()
+        .read_to_string(&mut input)
+        .context("stdin read error")?;
+
+    let conn = open_db(db_path)?;
+    handle_pipe_inner(&input, &args.r#type, &conn)
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1322,5 +1326,264 @@ mod tests {
         let fetched = db::get_log(&conn, &log.id).unwrap();
         assert_eq!(fetched.content, "done stuff");
         assert_eq!(fetched.project.as_deref(), Some("infra"));
+    }
+
+    // ── Idea add via handler ──
+
+    #[test]
+    fn handler_idea_add_via_handler() {
+        let (_dir, db_path) = setup_temp_db();
+        let args = IdeaAddArgs {
+            title: "test idea".to_string(),
+            content: Some("content".to_string()),
+            source: Some("twitter".to_string()),
+            tag: Some("test".to_string()),
+            project: Some("proj".to_string()),
+        };
+        handle_idea(&IdeaCommands::Add(args), Some(&db_path), false).unwrap();
+
+        let conn = open_db(Some(&db_path)).unwrap();
+        let ideas = db::list_ideas(&conn, None).unwrap();
+        assert_eq!(ideas.len(), 1);
+        let idea = &ideas[0];
+        assert_eq!(idea.title, "test idea");
+        assert_eq!(idea.content.as_deref(), Some("content"));
+        assert_eq!(idea.source.as_deref(), Some("twitter"));
+        assert_eq!(idea.tags, vec!["test"]);
+        assert_eq!(idea.project.as_deref(), Some("proj"));
+    }
+
+    #[test]
+    fn handler_idea_add_json_output() {
+        let (_dir, db_path) = setup_temp_db();
+        let args = IdeaAddArgs {
+            title: "json idea".to_string(),
+            content: None,
+            source: None,
+            tag: None,
+            project: None,
+        };
+        handle_idea(&IdeaCommands::Add(args), Some(&db_path), true).unwrap();
+
+        let conn = open_db(Some(&db_path)).unwrap();
+        assert_eq!(db::list_ideas(&conn, None).unwrap().len(), 1);
+    }
+
+    // ── Log add via handler ──
+
+    #[test]
+    fn handler_log_add_via_handler() {
+        let (_dir, db_path) = setup_temp_db();
+        let args = LogAddArgs {
+            content: "test log entry".to_string(),
+            mood: Some("happy".to_string()),
+            tag: Some("work".to_string()),
+            project: Some("myproject".to_string()),
+        };
+        handle_log(&LogCommands::Add(args), Some(&db_path), false).unwrap();
+
+        let conn = open_db(Some(&db_path)).unwrap();
+        let logs = db::list_logs(&conn, None).unwrap();
+        assert_eq!(logs.len(), 1);
+        let log = &logs[0];
+        assert_eq!(log.content, "test log entry");
+        assert_eq!(log.mood.as_deref(), Some("happy"));
+        assert_eq!(log.tags, vec!["work"]);
+        assert_eq!(log.project.as_deref(), Some("myproject"));
+    }
+
+    #[test]
+    fn handler_log_add_json_output() {
+        let (_dir, db_path) = setup_temp_db();
+        let args = LogAddArgs {
+            content: "json log".to_string(),
+            mood: None,
+            tag: None,
+            project: None,
+        };
+        handle_log(&LogCommands::Add(args), Some(&db_path), true).unwrap();
+
+        let conn = open_db(Some(&db_path)).unwrap();
+        assert_eq!(db::list_logs(&conn, None).unwrap().len(), 1);
+    }
+
+    // ── List handlers via actual function call ──
+
+    #[test]
+    fn handler_todo_list_via_handler() {
+        let (_dir, db_path) = setup_temp_db();
+        add_todo_via_handler(&db_path);
+
+        let conn = open_db(Some(&db_path)).unwrap();
+        let list_args = TodoListArgs {
+            pending: false, done: false, archived: false, all: false,
+            tag: None, project: None, overdue: false, today: false,
+        };
+        handle_todo_list(&list_args, &conn, false).unwrap();
+
+        let args_pending = TodoListArgs {
+            pending: true, done: false, archived: false, all: false,
+            tag: None, project: None, overdue: false, today: false,
+        };
+        handle_todo_list(&args_pending, &conn, false).unwrap();
+
+        let args_json = TodoListArgs {
+            pending: false, done: false, archived: false, all: true,
+            tag: None, project: None, overdue: false, today: false,
+        };
+        handle_todo_list(&args_json, &conn, true).unwrap();
+    }
+
+    #[test]
+    fn handler_todo_list_tag_project_filter() {
+        let (_dir, db_path) = setup_temp_db();
+        add_todo_via_handler(&db_path); // has tag="test,dev", project="proj"
+
+        let conn = open_db(Some(&db_path)).unwrap();
+        let args = TodoListArgs {
+            pending: false, done: false, archived: false, all: false,
+            tag: Some("test".to_string()), project: Some("proj".to_string()),
+            overdue: false, today: false,
+        };
+        handle_todo_list(&args, &conn, false).unwrap();
+    }
+
+    #[test]
+    fn handler_idea_list_via_handler() {
+        let (_dir, db_path) = setup_temp_db();
+        let args = IdeaAddArgs {
+            title: "listable idea".to_string(),
+            content: None, source: None,
+            tag: Some("test".to_string()),
+            project: Some("proj".to_string()),
+        };
+        handle_idea(&IdeaCommands::Add(args), Some(&db_path), false).unwrap();
+
+        let list_args = IdeaListArgs {
+            days: 7,
+            tag: None, project: None,
+        };
+        handle_idea(&IdeaCommands::List(list_args), Some(&db_path), false).unwrap();
+
+        let list_json = IdeaListArgs {
+            days: 7,
+            tag: Some("test".to_string()), project: None,
+        };
+        handle_idea(&IdeaCommands::List(list_json), Some(&db_path), true).unwrap();
+    }
+
+    #[test]
+    fn handler_log_list_via_handler() {
+        let (_dir, db_path) = setup_temp_db();
+        let args = LogAddArgs {
+            content: "listable log".to_string(),
+            mood: Some("happy".to_string()),
+            tag: Some("work".to_string()),
+            project: Some("proj".to_string()),
+        };
+        handle_log(&LogCommands::Add(args), Some(&db_path), false).unwrap();
+
+        let list_args = LogListArgs {
+            days: 7,
+            tag: None, mood: None, project: None,
+        };
+        handle_log(&LogCommands::List(list_args), Some(&db_path), false).unwrap();
+
+        let list_json = LogListArgs {
+            days: 7,
+            tag: Some("work".to_string()), mood: None, project: None,
+        };
+        handle_log(&LogCommands::List(list_json), Some(&db_path), true).unwrap();
+    }
+
+    // ── handle_pipe_inner tests ──
+
+    #[test]
+    fn handle_pipe_inner_todo() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+        handle_pipe_inner("P0 fix it #urgent due:tomorrow project:api", "todo", &conn).unwrap();
+
+        let todos = db::list_todos(&conn, None).unwrap();
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].title, "fix it");
+        assert_eq!(todos[0].priority, Priority::P0);
+        assert_eq!(todos[0].tags, vec!["urgent"]);
+        assert_eq!(todos[0].project.as_deref(), Some("api"));
+        assert!(todos[0].due_date.is_some());
+    }
+
+    #[test]
+    fn handle_pipe_inner_idea() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+        handle_pipe_inner("AI idea #tech source:twitter project:myapp", "idea", &conn).unwrap();
+
+        let ideas = db::list_ideas(&conn, None).unwrap();
+        assert_eq!(ideas.len(), 1);
+        assert_eq!(ideas[0].title, "AI idea");
+        assert_eq!(ideas[0].tags, vec!["tech"]);
+        assert_eq!(ideas[0].source.as_deref(), Some("twitter"));
+        assert_eq!(ideas[0].project.as_deref(), Some("myapp"));
+    }
+
+    #[test]
+    fn handle_pipe_inner_log() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+        handle_pipe_inner("shipped v2 mood:happy project:backend", "log", &conn).unwrap();
+
+        let logs = db::list_logs(&conn, None).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].content, "shipped v2");
+        assert_eq!(logs[0].mood.as_deref(), Some("happy"));
+        assert_eq!(logs[0].project.as_deref(), Some("backend"));
+    }
+
+    #[test]
+    fn handle_pipe_inner_empty_input() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+        handle_pipe_inner("", "todo", &conn).unwrap();
+
+        let todos = db::list_todos(&conn, None).unwrap();
+        assert!(todos.is_empty());
+    }
+
+    #[test]
+    fn handle_pipe_inner_only_whitespace() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+        handle_pipe_inner("  \n  ", "todo", &conn).unwrap();
+
+        let todos = db::list_todos(&conn, None).unwrap();
+        assert!(todos.is_empty());
+    }
+
+    #[test]
+    fn handle_pipe_inner_unknown_type() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+        handle_pipe_inner("some data", "unknown", &conn).unwrap();
+
+        // No data should be inserted
+        let todos = db::list_todos(&conn, None).unwrap();
+        let ideas = db::list_ideas(&conn, None).unwrap();
+        let logs = db::list_logs(&conn, None).unwrap();
+        assert!(todos.is_empty());
+        assert!(ideas.is_empty());
+        assert!(logs.is_empty());
+    }
+
+    #[test]
+    fn handle_pipe_inner_todo_plain_text() {
+        let (_dir, db_path) = setup_temp_db();
+        let conn = open_db(Some(&db_path)).unwrap();
+        handle_pipe_inner("just a simple task", "todo", &conn).unwrap();
+
+        let todos = db::list_todos(&conn, None).unwrap();
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].title, "just a simple task");
+        assert_eq!(todos[0].priority, Priority::P2);
     }
 }
