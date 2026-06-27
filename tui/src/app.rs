@@ -43,8 +43,8 @@ pub enum InputType {
 }
 
 pub struct App {
-    // Database
-    pub db_path: String,
+    // Database connection (persistent — opened once in new())
+    pub conn: rusqlite::Connection,
 
     // Current view
     pub active_view: ActiveView,
@@ -76,13 +76,11 @@ pub struct App {
 
 impl App {
     pub fn new(db_path: &str) -> Result<Self, String> {
-        // Open and migrate database
         let conn = db::open(db_path).map_err(|e| format!("Failed to open database: {}", e))?;
         db::migrate(&conn).map_err(|e| format!("Failed to migrate database: {}", e))?;
-        drop(conn); // We'll open connections as needed
 
         let mut app = Self {
-            db_path: db_path.to_string(),
+            conn,
             active_view: ActiveView::Todo,
             todos: vec![],
             ideas: vec![],
@@ -103,35 +101,21 @@ impl App {
     }
 
     pub fn refresh_data(&mut self) {
-        let conn = match db::open(&self.db_path) {
-            Ok(c) => c,
-            Err(_) => {
-                self.set_status("Database error — data may be stale");
-                return;
-            }
-        };
-        self.todos = db::list_todos(&conn, None).unwrap_or_default();
-        self.ideas = db::list_ideas(&conn, None).unwrap_or_default();
-        self.logs = db::list_logs(&conn, None).unwrap_or_default();
+        self.todos = db::list_todos(&self.conn, None).unwrap_or_default();
+        self.ideas = db::list_ideas(&self.conn, None).unwrap_or_default();
+        self.logs = db::list_logs(&self.conn, None).unwrap_or_default();
     }
 
     pub fn refresh_current_list(&mut self) {
-        let conn = match db::open(&self.db_path) {
-            Ok(c) => c,
-            Err(_) => {
-                self.set_status("Database error — data may be stale");
-                return;
-            }
-        };
         match self.active_view {
             ActiveView::Todo => {
-                self.todos = db::list_todos(&conn, None).unwrap_or_default();
+                self.todos = db::list_todos(&self.conn, None).unwrap_or_default();
             }
             ActiveView::Idea => {
-                self.ideas = db::list_ideas(&conn, None).unwrap_or_default();
+                self.ideas = db::list_ideas(&self.conn, None).unwrap_or_default();
             }
             ActiveView::Log => {
-                self.logs = db::list_logs(&conn, None).unwrap_or_default();
+                self.logs = db::list_logs(&self.conn, None).unwrap_or_default();
             }
         }
     }
@@ -152,14 +136,6 @@ impl App {
             return false;
         }
 
-        let conn = match db::open(&self.db_path) {
-            Ok(c) => c,
-            Err(_) => {
-                self.set_status("Failed to open database");
-                return false;
-            }
-        };
-
         // ── If editing an existing item, update it ──
         if let Some(ref item_id) = self.editing_item_id.clone() {
             let ok = match self.input_type {
@@ -173,7 +149,7 @@ impl App {
                         tags: if parsed.tags.is_empty() { None } else { Some(parsed.tags) },
                         project: parsed.project,
                     };
-                    db::update_todo(&conn, &item_id, &update).is_ok()
+                    db::update_todo(&self.conn, &item_id, &update).is_ok()
                 }
                 InputType::Idea => {
                     let parsed = starcatch_core::parser::parse_pipe_idea(&text);
@@ -184,7 +160,7 @@ impl App {
                         tags: if parsed.tags.is_empty() { None } else { Some(parsed.tags) },
                         project: parsed.project,
                     };
-                    db::update_idea(&conn, &item_id, &update).is_ok()
+                    db::update_idea(&self.conn, &item_id, &update).is_ok()
                 }
                 InputType::Log => {
                     let parsed = starcatch_core::parser::parse_pipe_log(&text);
@@ -194,7 +170,7 @@ impl App {
                         tags: if parsed.tags.is_empty() { None } else { Some(parsed.tags) },
                         project: parsed.project,
                     };
-                    db::update_log(&conn, &item_id, &update).is_ok()
+                    db::update_log(&self.conn, &item_id, &update).is_ok()
                 }
             };
             if ok {
@@ -225,7 +201,7 @@ impl App {
                     created_at: chrono::Utc::now(),
                     updated_at: chrono::Utc::now(),
                 };
-                if let Err(e) = db::insert_todo(&conn, &todo) {
+                if let Err(e) = db::insert_todo(&self.conn, &todo) {
                     self.set_status(&format!("Error: {}", e));
                     return false;
                 }
@@ -243,7 +219,7 @@ impl App {
                     project: parsed.project,
                     created_at: chrono::Utc::now(),
                 };
-                if let Err(e) = db::insert_idea(&conn, &idea) {
+                if let Err(e) = db::insert_idea(&self.conn, &idea) {
                     self.set_status(&format!("Error: {}", e));
                     return false;
                 }
@@ -260,7 +236,7 @@ impl App {
                     created_at: chrono::Utc::now(),
                     updated_at: None,
                 };
-                if let Err(e) = db::insert_log(&conn, &log) {
+                if let Err(e) = db::insert_log(&self.conn, &log) {
                     self.set_status(&format!("Error: {}", e));
                     return false;
                 }
@@ -291,11 +267,7 @@ impl App {
             TodoStatus::Done => TodoStatus::Pending,
             TodoStatus::Archived => unreachable!(),
         };
-        let conn = match db::open(&self.db_path) {
-            Ok(c) => c,
-            Err(_) => return,
-        };
-        if let Err(e) = db::update_todo_status(&conn, &todo.id, &new_status) {
+        if let Err(e) = db::update_todo_status(&self.conn, &todo.id, &new_status) {
             self.set_status(&format!("Error: {}", e));
             return;
         }
@@ -318,11 +290,7 @@ impl App {
             return;
         }
         let id = self.todos[self.selected_index].id.clone();
-        let conn = match db::open(&self.db_path) {
-            Ok(c) => c,
-            Err(_) => return,
-        };
-        if let Err(e) = db::update_todo_status(&conn, &id, &TodoStatus::Archived) {
+        if let Err(e) = db::update_todo_status(&self.conn, &id, &TodoStatus::Archived) {
             self.set_status(&format!("Error: {}", e));
             return;
         }
@@ -355,15 +323,11 @@ impl App {
 
         // Second 'd': actually delete
         self.confirm_delete = false;
-        let conn = match db::open(&self.db_path) {
-            Ok(c) => c,
-            Err(_) => return,
-        };
 
         let type_name = match self.active_view {
             ActiveView::Todo => {
                 let id = self.todos[self.selected_index].id.clone();
-                if let Err(e) = db::delete_todo(&conn, &id) {
+                if let Err(e) = db::delete_todo(&self.conn, &id) {
                     self.set_status(&format!("Error: {}", e));
                     return;
                 }
@@ -371,7 +335,7 @@ impl App {
             }
             ActiveView::Idea => {
                 let id = self.ideas[self.selected_index].id.clone();
-                if let Err(e) = db::delete_idea(&conn, &id) {
+                if let Err(e) = db::delete_idea(&self.conn, &id) {
                     self.set_status(&format!("Error: {}", e));
                     return;
                 }
@@ -379,7 +343,7 @@ impl App {
             }
             ActiveView::Log => {
                 let id = self.logs[self.selected_index].id.clone();
-                if let Err(e) = db::delete_log(&conn, &id) {
+                if let Err(e) = db::delete_log(&self.conn, &id) {
                     self.set_status(&format!("Error: {}", e));
                     return;
                 }
@@ -396,6 +360,8 @@ impl App {
 
     /// Start editing the currently selected item.
     /// Pre-fills the input bar and enters editing mode.
+    /// Uses " | " to separate raw title/content (left) from metadata (right)
+    /// so that re-parsing never consumes parts of the title as keywords.
     pub fn start_edit(&mut self) {
         if self.current_list_len() == 0 || self.selected_index >= self.current_list_len() {
             return;
@@ -404,15 +370,63 @@ impl App {
         let (id, text) = match self.active_view {
             ActiveView::Todo => {
                 let t = &self.todos[self.selected_index];
-                (t.id.clone(), t.title.clone())
+                let mut buf = t.title.clone();
+                buf.push_str(" | ");
+                let mut meta_parts: Vec<String> = Vec::new();
+                if t.priority != Priority::P2 {
+                    meta_parts.push(t.priority.to_string());
+                }
+                for tag in &t.tags {
+                    meta_parts.push(format!("#{}", tag));
+                }
+                if let Some(ref due) = t.due_date {
+                    meta_parts.push(format!("due:{}", due));
+                }
+                if let Some(ref proj) = t.project {
+                    meta_parts.push(format!("project:{}", proj));
+                }
+                if !meta_parts.is_empty() {
+                    buf.push_str(&meta_parts.join(" "));
+                }
+                (t.id.clone(), buf)
             }
             ActiveView::Idea => {
                 let t = &self.ideas[self.selected_index];
-                (t.id.clone(), t.title.clone())
+                let mut buf = t.title.clone();
+                buf.push_str(" | ");
+                let mut meta_parts: Vec<String> = Vec::new();
+                for tag in &t.tags {
+                    meta_parts.push(format!("#{}", tag));
+                }
+                if let Some(ref src) = t.source {
+                    meta_parts.push(format!("source:{}", src));
+                }
+                if let Some(ref proj) = t.project {
+                    meta_parts.push(format!("project:{}", proj));
+                }
+                if !meta_parts.is_empty() {
+                    buf.push_str(&meta_parts.join(" "));
+                }
+                (t.id.clone(), buf)
             }
             ActiveView::Log => {
                 let t = &self.logs[self.selected_index];
-                (t.id.clone(), t.content.clone())
+                let mut buf = t.content.clone();
+                buf.push_str(" | ");
+                let mut meta_parts: Vec<String> = Vec::new();
+                if let Some(ref mood) = t.mood {
+                    meta_parts.push(format!("mood:{}", mood));
+                }
+                for tag in &t.tags {
+                    meta_parts.push(format!("#{}", tag));
+                }
+                if let Some(ref proj) = t.project {
+                    meta_parts.push(format!("project:{}", proj));
+                }
+                if !meta_parts.is_empty() {
+                    buf.push_str(&meta_parts.join(" "));
+                }
+                (t.id.clone(), buf)
             }
         };
 

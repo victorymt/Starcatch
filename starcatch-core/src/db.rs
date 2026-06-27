@@ -1,3 +1,4 @@
+use anyhow::Context;
 use chrono::Utc;
 use rusqlite::{Connection, Result};
 
@@ -535,7 +536,7 @@ pub fn export_all(conn: &Connection) -> Result<ExportData> {
     Ok(ExportData { todos, ideas, logs })
 }
 
-pub fn export_csv(conn: &Connection) -> Result<String> {
+pub fn export_csv(conn: &Connection) -> anyhow::Result<String> {
     let mut wtr = csv::Writer::from_writer(Vec::new());
 
     // Todos
@@ -585,12 +586,8 @@ pub fn export_csv(conn: &Connection) -> Result<String> {
         ]).ok();
     }
 
-    let data = wtr.into_inner().map_err(|e| {
-        rusqlite::Error::InvalidParameterName(format!("CSV write error: {}", e))
-    })?;
-    String::from_utf8(data).map_err(|e| {
-        rusqlite::Error::InvalidParameterName(format!("UTF-8 error: {}", e))
-    })
+    let data = wtr.into_inner().context("CSV write error")?;
+    String::from_utf8(data).context("CSV output is not valid UTF-8")
 }
 
 // ═══════════════════════════════════════════════════════════

@@ -57,11 +57,147 @@ fn trim_trailing_punct(s: &str) -> &str {
     &s[..end]
 }
 
+// ─── Separator for edit-mode ────────────────────────────────────────
+/// When present in the input, everything to the left of " | " is treated
+/// as the literal title/content (no metadata parsing), and everything to
+/// the right is metadata-only (no title token collection).
+const SEPARATOR: &str = " | ";
+
+fn split_separator(raw: &str) -> Option<(&str, &str)> {
+    let pos = raw.find(SEPARATOR)?;
+    Some((&raw[..pos], raw[pos + SEPARATOR.len()..].trim()))
+}
+
+// ─── Meta-only parsers (for the right side of " | ") ────────────────
+
+fn parse_todo_meta(raw: &str) -> (Priority, Option<String>, Vec<String>, Option<String>) {
+    let mut priority = Priority::P2;
+    let mut due_date = None;
+    let mut tags: Vec<String> = Vec::new();
+    let mut project = None;
+
+    let tokens: Vec<&str> = raw.split_whitespace().collect();
+    let mut i = 0;
+    while i < tokens.len() {
+        let token = tokens[i];
+        match token {
+            "P0" => priority = Priority::P0,
+            "P1" => priority = Priority::P1,
+            "P3" => priority = Priority::P3,
+            "P2" => priority = Priority::P2,
+            _ => {
+                if let Some(val) = token.strip_prefix("due:").or_else(|| token.strip_prefix("due：")) {
+                    if !val.is_empty() {
+                        due_date = Some(parse_natural_date(val).unwrap_or_else(|| val.to_string()));
+                    } else if i + 1 < tokens.len() {
+                        i += 1;
+                        due_date = Some(parse_natural_date(tokens[i]).unwrap_or_else(|| tokens[i].to_string()));
+                    }
+                } else if let Some(val) = token.strip_prefix("project:").or_else(|| token.strip_prefix("project：")) {
+                    if !val.is_empty() {
+                        project = Some(val.to_string());
+                    } else if i + 1 < tokens.len() {
+                        i += 1;
+                        project = Some(tokens[i].to_string());
+                    }
+                } else if let Some(tag) = token.strip_prefix('#') {
+                    let tag = trim_trailing_punct(tag.trim());
+                    if !tag.is_empty() {
+                        tags.push(tag.to_string());
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    (priority, due_date, tags, project)
+}
+
+fn parse_idea_meta(raw: &str) -> (Option<String>, Vec<String>, Option<String>) {
+    let mut source = None;
+    let mut tags: Vec<String> = Vec::new();
+    let mut project = None;
+
+    let tokens: Vec<&str> = raw.split_whitespace().collect();
+    let mut i = 0;
+    while i < tokens.len() {
+        let token = tokens[i];
+        if let Some(val) = token.strip_prefix("source:").or_else(|| token.strip_prefix("source：")) {
+            if !val.is_empty() {
+                source = Some(val.to_string());
+            } else if i + 1 < tokens.len() {
+                i += 1;
+                source = Some(tokens[i].to_string());
+            }
+        } else if let Some(val) = token.strip_prefix("project:").or_else(|| token.strip_prefix("project：")) {
+            if !val.is_empty() {
+                project = Some(val.to_string());
+            } else if i + 1 < tokens.len() {
+                i += 1;
+                project = Some(tokens[i].to_string());
+            }
+        } else if let Some(tag) = token.strip_prefix('#') {
+            let tag = trim_trailing_punct(tag.trim());
+            if !tag.is_empty() {
+                tags.push(tag.to_string());
+            }
+        }
+        i += 1;
+    }
+    (source, tags, project)
+}
+
+fn parse_log_meta(raw: &str) -> (Option<String>, Vec<String>, Option<String>) {
+    let mut mood = None;
+    let mut tags: Vec<String> = Vec::new();
+    let mut project = None;
+
+    let tokens: Vec<&str> = raw.split_whitespace().collect();
+    let mut i = 0;
+    while i < tokens.len() {
+        let token = tokens[i];
+        if let Some(val) = token.strip_prefix("mood:").or_else(|| token.strip_prefix("mood：")) {
+            if !val.is_empty() {
+                mood = Some(val.to_string());
+            } else if i + 1 < tokens.len() {
+                i += 1;
+                mood = Some(tokens[i].to_string());
+            }
+        } else if let Some(val) = token.strip_prefix("project:").or_else(|| token.strip_prefix("project：")) {
+            if !val.is_empty() {
+                project = Some(val.to_string());
+            } else if i + 1 < tokens.len() {
+                i += 1;
+                project = Some(tokens[i].to_string());
+            }
+        } else if let Some(tag) = token.strip_prefix('#') {
+            let tag = trim_trailing_punct(tag.trim());
+            if !tag.is_empty() {
+                tags.push(tag.to_string());
+            }
+        }
+        i += 1;
+    }
+    (mood, tags, project)
+}
+
 // ─── Pipe input parsers ──────────────────────────────────────────────
 
-/// Parse a quick-input string for pipe mode.
+/// Parse a quick-input (or edit) string for pipe mode.
+/// If " | " is present, splits into title (left) and metadata (right).
 /// Extracts P0-P3 priority, due:/due： dates, #tags, project: — the rest becomes the title.
 pub fn parse_pipe_todo(raw: &str) -> ParsedPipeTodo {
+    // Edit-mode path: explicit separator
+    if let Some((title, meta)) = split_separator(raw) {
+        let (priority, due_date, tags, project) = if meta.is_empty() {
+            (Priority::P2, None, vec![], None)
+        } else {
+            parse_todo_meta(meta)
+        };
+        return ParsedPipeTodo { title: title.to_string(), priority, due_date, tags, project };
+    }
+
+    // Quick-input path (no separator)
     let mut priority = Priority::P2;
     let mut due_date = None;
     let mut tags: Vec<String> = Vec::new();
@@ -130,6 +266,17 @@ pub fn parse_pipe_todo(raw: &str) -> ParsedPipeTodo {
 
 /// Parse pipe input for idea: extracts #tags, source:, project: — the rest becomes title.
 pub fn parse_pipe_idea(raw: &str) -> ParsedPipeIdea {
+    // Edit-mode path: explicit separator
+    if let Some((title, meta)) = split_separator(raw) {
+        let (source, tags, project) = if meta.is_empty() {
+            (None, vec![], None)
+        } else {
+            parse_idea_meta(meta)
+        };
+        return ParsedPipeIdea { title: title.to_string(), source, tags, project };
+    }
+
+    // Quick-input path (no separator)
     let mut source = None;
     let mut tags: Vec<String> = Vec::new();
     let mut project = None;
@@ -172,6 +319,17 @@ pub fn parse_pipe_idea(raw: &str) -> ParsedPipeIdea {
 
 /// Parse pipe input for log: extracts #tags, mood:, project: — the rest becomes content.
 pub fn parse_pipe_log(raw: &str) -> ParsedPipeLog {
+    // Edit-mode path: explicit separator
+    if let Some((content, meta)) = split_separator(raw) {
+        let (mood, tags, project) = if meta.is_empty() {
+            (None, vec![], None)
+        } else {
+            parse_log_meta(meta)
+        };
+        return ParsedPipeLog { content: content.to_string(), mood, tags, project };
+    }
+
+    // Quick-input path (no separator)
     let mut mood = None;
     let mut tags: Vec<String> = Vec::new();
     let mut project = None;
@@ -479,5 +637,107 @@ mod tests {
         assert_eq!(r.mood, Some("happy".to_string()));
         assert_eq!(r.tags, vec!["work"]);
         assert_eq!(r.project, Some("refactor".to_string()));
+    }
+
+    // ── Separator (edit-mode) tests ──
+
+    #[test]
+    fn todo_separator_preserves_title_verbatim() {
+        let r = parse_pipe_todo("买牛奶 | P1 #shopping due:明天");
+        assert_eq!(r.title, "买牛奶");
+        assert_eq!(r.priority, Priority::P1);
+        assert_eq!(r.tags, vec!["shopping"]);
+        assert!(r.due_date.is_some());
+    }
+
+    #[test]
+    fn todo_separator_title_containing_p0_is_safe() {
+        // "P0" in title would be eaten by quick-input path — separator preserves it
+        let r = parse_pipe_todo("Release P0 | P1 #urgent");
+        assert_eq!(r.title, "Release P0");
+        assert_eq!(r.priority, Priority::P1);
+        assert_eq!(r.tags, vec!["urgent"]);
+    }
+
+    #[test]
+    fn todo_separator_title_containing_due_keyword_is_safe() {
+        let r = parse_pipe_todo("meeting due:tomorrow | P0 #work");
+        assert_eq!(r.title, "meeting due:tomorrow");
+        assert_eq!(r.priority, Priority::P0);
+        assert_eq!(r.tags, vec!["work"]);
+    }
+
+    #[test]
+    fn todo_separator_no_meta() {
+        let r = parse_pipe_todo("买牛奶 | ");
+        assert_eq!(r.title, "买牛奶");
+        assert_eq!(r.priority, Priority::P2);
+        assert!(r.tags.is_empty());
+        assert!(r.due_date.is_none());
+        assert!(r.project.is_none());
+    }
+
+    #[test]
+    fn todo_separator_meta_only_no_priority() {
+        let r = parse_pipe_todo("标题 | #tag project:foo");
+        assert_eq!(r.title, "标题");
+        assert_eq!(r.priority, Priority::P2);
+        assert_eq!(r.tags, vec!["tag"]);
+        assert_eq!(r.project, Some("foo".to_string()));
+    }
+
+    #[test]
+    fn todo_without_separator_still_works() {
+        let r = parse_pipe_todo("P1 重要事情");
+        assert_eq!(r.title, "重要事情");
+        assert_eq!(r.priority, Priority::P1);
+    }
+
+    #[test]
+    fn idea_separator_preserves_title_verbatim() {
+        let r = parse_pipe_idea("好点子 #idea | source:读书 project:个人");
+        assert_eq!(r.title, "好点子 #idea");
+        assert_eq!(r.source, Some("读书".to_string()));
+        assert_eq!(r.project, Some("个人".to_string()));
+    }
+
+    #[test]
+    fn idea_separator_no_meta() {
+        let r = parse_pipe_idea("plain idea | ");
+        assert_eq!(r.title, "plain idea");
+        assert!(r.source.is_none());
+        assert!(r.tags.is_empty());
+    }
+
+    #[test]
+    fn log_separator_preserves_content_verbatim() {
+        let r = parse_pipe_log("今天很顺利 mood:happy | mood:sad #work");
+        assert_eq!(r.content, "今天很顺利 mood:happy");
+        assert_eq!(r.mood, Some("sad".to_string()));
+        assert_eq!(r.tags, vec!["work"]);
+    }
+
+    #[test]
+    fn log_separator_no_meta() {
+        let r = parse_pipe_log("plain log | ");
+        assert_eq!(r.content, "plain log");
+        assert!(r.mood.is_none());
+        assert!(r.tags.is_empty());
+    }
+
+    #[test]
+    fn quick_input_no_separator_unchanged() {
+        // Existing quick-input behavior is unchanged when " | " is absent
+        let r = parse_pipe_todo("买东西 #shopping #urgent");
+        assert_eq!(r.title, "买东西");
+        assert_eq!(r.tags, vec!["shopping", "urgent"]);
+
+        let r = parse_pipe_idea("新功能 #innovation #tech");
+        assert_eq!(r.title, "新功能");
+        assert_eq!(r.tags, vec!["innovation", "tech"]);
+
+        let r = parse_pipe_log("完成重构 #dev #rust");
+        assert_eq!(r.content, "完成重构");
+        assert_eq!(r.tags, vec!["dev", "rust"]);
     }
 }

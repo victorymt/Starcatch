@@ -77,6 +77,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.103"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -868,6 +874,7 @@ dependencies = [
 name = "starcatch"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "chrono",
  "clap",
  "clap_complete",
@@ -883,6 +890,7 @@ dependencies = [
 name = "starcatch-core"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "chrono",
  "csv",
  "regex",
@@ -900,6 +908,7 @@ dependencies = [
  "chrono",
  "crossterm",
  "ratatui",
+ "rusqlite",
  "starcatch-core",
  "uuid",
 ]

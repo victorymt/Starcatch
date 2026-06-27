@@ -2,6 +2,7 @@ mod cli;
 
 use std::io::Read;
 
+use anyhow::{Context, Result};
 use chrono::Utc;
 use clap::Parser;
 
@@ -16,7 +17,7 @@ fn default_db_path() -> String {
     format!("{}/starcatch.db", dir)
 }
 
-fn open_db(db_path: Option<&str>) -> rusqlite::Result<rusqlite::Connection> {
+fn open_db(db_path: Option<&str>) -> Result<rusqlite::Connection> {
     let default_path = default_db_path();
     let path = db_path.unwrap_or(&default_path);
     let conn = db::open(path)?;
@@ -62,7 +63,7 @@ fn main() {
 // ─── Todo ───
 // ═══════════════════════════════════════════════════════════
 
-fn handle_todo(cmd: &TodoCommands, db_path: Option<&str>, json: bool) -> rusqlite::Result<()> {
+fn handle_todo(cmd: &TodoCommands, db_path: Option<&str>, json: bool) -> Result<()> {
     let conn = open_db(db_path)?;
 
     match cmd {
@@ -93,7 +94,7 @@ fn handle_todo(cmd: &TodoCommands, db_path: Option<&str>, json: bool) -> rusqlit
     }
 }
 
-fn handle_todo_add(args: &TodoAddArgs, conn: &rusqlite::Connection) -> rusqlite::Result<()> {
+fn handle_todo_add(args: &TodoAddArgs, conn: &rusqlite::Connection) -> Result<()> {
     let priority = match args.priority.to_uppercase().as_str() {
         "P0" => Priority::P0,
         "P1" => Priority::P1,
@@ -122,7 +123,7 @@ fn handle_todo_add(args: &TodoAddArgs, conn: &rusqlite::Connection) -> rusqlite:
     Ok(())
 }
 
-fn handle_todo_list(args: &TodoListArgs, conn: &rusqlite::Connection, json: bool) -> rusqlite::Result<()> {
+fn handle_todo_list(args: &TodoListArgs, conn: &rusqlite::Connection, json: bool) -> Result<()> {
     let show_statuses = list_visible_statuses(args);
     let mut todos = fetch_todos_by_statuses(conn, &show_statuses)?;
     todos.sort_by_key(|t| (t.priority.order(), std::cmp::Reverse(t.created_at)));
@@ -159,14 +160,14 @@ fn handle_todo_list(args: &TodoListArgs, conn: &rusqlite::Connection, json: bool
     }).collect();
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&filtered).unwrap_or_default());
+        println!("{}", serde_json::to_string_pretty(&filtered)?);
     } else {
         render_todo_list(&filtered);
     }
     Ok(())
 }
 
-fn handle_todo_edit(args: &TodoEditArgs, conn: &rusqlite::Connection, json: bool) -> rusqlite::Result<()> {
+fn handle_todo_edit(args: &TodoEditArgs, conn: &rusqlite::Connection, json: bool) -> Result<()> {
     let priority = args.priority.as_deref().map(|p| match p.to_uppercase().as_str() {
         "P0" => Priority::P0,
         "P1" => Priority::P1,
@@ -189,17 +190,17 @@ fn handle_todo_edit(args: &TodoEditArgs, conn: &rusqlite::Connection, json: bool
 
     if json {
         let updated = db::get_todo(conn, &args.id)?;
-        println!("{}", serde_json::to_string_pretty(&updated).unwrap_or_default());
+        println!("{}", serde_json::to_string_pretty(&updated)?);
     } else {
         println!("✏️  Todo updated: {}", args.id);
     }
     Ok(())
 }
 
-fn handle_todo_show(id: &str, conn: &rusqlite::Connection, json: bool) -> rusqlite::Result<()> {
+fn handle_todo_show(id: &str, conn: &rusqlite::Connection, json: bool) -> Result<()> {
     let todo = db::get_todo(conn, id)?;
     if json {
-        println!("{}", serde_json::to_string_pretty(&todo).unwrap_or_default());
+        println!("{}", serde_json::to_string_pretty(&todo)?);
     } else {
         println!("📋 Todo: {}", todo.id);
         println!("   Title:       {}", todo.title);
@@ -232,7 +233,7 @@ fn list_visible_statuses(args: &TodoListArgs) -> Vec<&'static str> {
 fn fetch_todos_by_statuses(
     conn: &rusqlite::Connection,
     statuses: &[&str],
-) -> rusqlite::Result<Vec<Todo>> {
+) -> Result<Vec<Todo>> {
     let mut todos = Vec::new();
     for s in statuses {
         if let Ok(mut batch) = db::list_todos(conn, Some(s)) {
@@ -284,7 +285,7 @@ fn render_todo_list(todos: &[&Todo]) {
 // ─── Idea ───
 // ═══════════════════════════════════════════════════════════
 
-fn handle_idea(cmd: &IdeaCommands, db_path: Option<&str>, json: bool) -> rusqlite::Result<()> {
+fn handle_idea(cmd: &IdeaCommands, db_path: Option<&str>, json: bool) -> Result<()> {
     let conn = open_db(db_path)?;
 
     match cmd {
@@ -302,7 +303,7 @@ fn handle_idea(cmd: &IdeaCommands, db_path: Option<&str>, json: bool) -> rusqlit
 
             db::insert_idea(&conn, &idea)?;
             if json {
-                println!("{}", serde_json::to_string_pretty(&idea).unwrap_or_default());
+                println!("{}", serde_json::to_string_pretty(&idea)?);
             } else {
                 println!("💡 Idea captured: {}", idea.title);
             }
@@ -327,7 +328,7 @@ fn handle_idea(cmd: &IdeaCommands, db_path: Option<&str>, json: bool) -> rusqlit
             }).collect();
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&filtered).unwrap_or_default());
+                println!("{}", serde_json::to_string_pretty(&filtered)?);
             } else if filtered.is_empty() {
                 println!("💭 No ideas in the last {} days.", args.days);
             } else {
@@ -361,7 +362,7 @@ fn handle_idea(cmd: &IdeaCommands, db_path: Option<&str>, json: bool) -> rusqlit
             db::update_idea(&conn, &args.id, &update)?;
             if json {
                 let updated = db::get_idea(&conn, &args.id)?;
-                println!("{}", serde_json::to_string_pretty(&updated).unwrap_or_default());
+                println!("{}", serde_json::to_string_pretty(&updated)?);
             } else {
                 println!("✏️  Idea updated: {}", args.id);
             }
@@ -371,7 +372,7 @@ fn handle_idea(cmd: &IdeaCommands, db_path: Option<&str>, json: bool) -> rusqlit
         IdeaCommands::Show { id } => {
             let idea = db::get_idea(&conn, id)?;
             if json {
-                println!("{}", serde_json::to_string_pretty(&idea).unwrap_or_default());
+                println!("{}", serde_json::to_string_pretty(&idea)?);
             } else {
                 println!("💡 Idea: {}", idea.id);
                 println!("   Title:   {}", idea.title);
@@ -396,7 +397,7 @@ fn handle_idea(cmd: &IdeaCommands, db_path: Option<&str>, json: bool) -> rusqlit
 // ─── Log ───
 // ═══════════════════════════════════════════════════════════
 
-fn handle_log(cmd: &LogCommands, db_path: Option<&str>, json: bool) -> rusqlite::Result<()> {
+fn handle_log(cmd: &LogCommands, db_path: Option<&str>, json: bool) -> Result<()> {
     let conn = open_db(db_path)?;
 
     match cmd {
@@ -413,7 +414,7 @@ fn handle_log(cmd: &LogCommands, db_path: Option<&str>, json: bool) -> rusqlite:
 
             db::insert_log(&conn, &log)?;
             if json {
-                println!("{}", serde_json::to_string_pretty(&log).unwrap_or_default());
+                println!("{}", serde_json::to_string_pretty(&log)?);
             } else {
                 let mood_icon = log.mood.as_deref().unwrap_or("");
                 println!("📓 Log saved {}{}", mood_icon, if !mood_icon.is_empty() { " " } else { "" });
@@ -444,7 +445,7 @@ fn handle_log(cmd: &LogCommands, db_path: Option<&str>, json: bool) -> rusqlite:
             }).collect();
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&filtered).unwrap_or_default());
+                println!("{}", serde_json::to_string_pretty(&filtered)?);
             } else if filtered.is_empty() {
                 println!("📓 No logs in the last {} days.", args.days);
             } else {
@@ -470,7 +471,7 @@ fn handle_log(cmd: &LogCommands, db_path: Option<&str>, json: bool) -> rusqlite:
             db::update_log(&conn, &args.id, &update)?;
             if json {
                 let updated = db::get_log(&conn, &args.id)?;
-                println!("{}", serde_json::to_string_pretty(&updated).unwrap_or_default());
+                println!("{}", serde_json::to_string_pretty(&updated)?);
             } else {
                 println!("✏️  Log updated: {}", args.id);
             }
@@ -480,7 +481,7 @@ fn handle_log(cmd: &LogCommands, db_path: Option<&str>, json: bool) -> rusqlite:
         LogCommands::Show { id } => {
             let log = db::get_log(&conn, id)?;
             if json {
-                println!("{}", serde_json::to_string_pretty(&log).unwrap_or_default());
+                println!("{}", serde_json::to_string_pretty(&log)?);
             } else {
                 println!("📓 Log: {}", log.id);
                 println!("   Content: {}", log.content);
@@ -507,11 +508,11 @@ fn handle_log(cmd: &LogCommands, db_path: Option<&str>, json: bool) -> rusqlite:
 // ─── Pipe ───
 // ═══════════════════════════════════════════════════════════
 
-fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> rusqlite::Result<()> {
+fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> Result<()> {
     let mut input = String::new();
     std::io::stdin()
         .read_to_string(&mut input)
-        .map_err(|e| rusqlite::Error::InvalidParameterName(format!("stdin read error: {}", e)))?;
+        .context("stdin read error")?;
 
     let input = input.trim().to_string();
     if input.is_empty() {
@@ -580,12 +581,12 @@ fn handle_pipe(args: &PipeArgs, db_path: Option<&str>) -> rusqlite::Result<()> {
 // ─── Search ───
 // ═══════════════════════════════════════════════════════════
 
-fn handle_search(args: &SearchArgs, db_path: Option<&str>, json: bool) -> rusqlite::Result<()> {
+fn handle_search(args: &SearchArgs, db_path: Option<&str>, json: bool) -> Result<()> {
     let conn = open_db(db_path)?;
     let results = db::search_all(&conn, &args.query)?;
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&results).unwrap_or_default());
+        println!("{}", serde_json::to_string_pretty(&results)?);
     } else if results.is_empty() {
         println!("🔍 No results for \"{}\".", args.query);
     } else {
@@ -615,12 +616,12 @@ fn handle_search(args: &SearchArgs, db_path: Option<&str>, json: bool) -> rusqli
 // ─── Stats ───
 // ═══════════════════════════════════════════════════════════
 
-fn handle_stats(db_path: Option<&str>, json: bool) -> rusqlite::Result<()> {
+fn handle_stats(db_path: Option<&str>, json: bool) -> Result<()> {
     let conn = open_db(db_path)?;
     let stats = db::get_stats(&conn)?;
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&stats).unwrap_or_default());
+        println!("{}", serde_json::to_string_pretty(&stats)?);
     } else {
         println!("📊 Starcatch Stats:");
         println!("   📋 Pending todos:  {}", stats.pending_todos);
@@ -636,13 +637,13 @@ fn handle_stats(db_path: Option<&str>, json: bool) -> rusqlite::Result<()> {
 // ─── Export ───
 // ═══════════════════════════════════════════════════════════
 
-fn handle_export(args: &ExportArgs, db_path: Option<&str>) -> rusqlite::Result<()> {
+fn handle_export(args: &ExportArgs, db_path: Option<&str>) -> Result<()> {
     let conn = open_db(db_path)?;
 
     match args.format {
         ExportFormat::Json => {
             let data = db::export_all(&conn)?;
-            println!("{}", serde_json::to_string_pretty(&data).unwrap_or_default());
+            println!("{}", serde_json::to_string_pretty(&data)?);
         }
         ExportFormat::Csv => {
             let csv = db::export_csv(&conn)?;
@@ -657,7 +658,7 @@ fn handle_export(args: &ExportArgs, db_path: Option<&str>) -> rusqlite::Result<(
 // ─── Completions ───
 // ═══════════════════════════════════════════════════════════
 
-fn handle_completions(args: &CompletionsArgs) -> rusqlite::Result<()> {
+fn handle_completions(args: &CompletionsArgs) -> Result<()> {
     use clap::CommandFactory;
     use clap_complete::{generate, Shell as ClapShell};
 
