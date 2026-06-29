@@ -1,5 +1,5 @@
 [workspace]
-members = ["starcatch-core", "tui"]
+members = ["starcatch-core", "tui", "vendor/sqlite-migrate"]
 
 [package]
 name = "starcatch"

@@ -7,7 +7,7 @@ description = "Shared core library for Starcatch — data models and database"
 [dependencies]
 # Database
 rusqlite = { version = "0.34", features = ["bundled"] }
-sqlite-migrate = { path = "../../sqlite-migrate" }
+sqlite-migrate = { path = "../vendor/sqlite-migrate" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

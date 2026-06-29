@@ -165,6 +165,7 @@ void MainWindow::quickCapture(const QString& text, QuickKind kind) {
             todo.status      = TodoStatus::Pending;
             todo.dueDate     = p.dueDate;
             todo.tags        = p.tags;
+            todo.project     = p.project;
             todo.createdAt   = now;
             todo.updatedAt   = now;
             m_db->insertTodo(todo);

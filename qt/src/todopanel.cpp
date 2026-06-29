@@ -90,19 +90,25 @@ public:
             layout->addWidget(tagLabel);
         }
 
-        // Due date — highlight if overdue or due today
+        // Due date — highlight if overdue (past today) or due today
         if (!todo.dueDate.isEmpty() && !isDone && !isArchived) {
             QDate today = QDate::currentDate();
             QDate due = QDate::fromString(todo.dueDate, QStringLiteral("yyyy-MM-dd"));
-            bool overdue = due.isValid() && due <= today;
+            // 与 CLI 一致：今天不算逾期，仅昨天及更早算 overdue
+            bool overdue = due.isValid() && due < today;
             bool dueToday = due.isValid() && due == today;
 
-            auto* dueLabel = new QLabel(todo.dueDate, this);
+            auto* dueLabel = new QLabel(this);
             if (overdue) {
                 dueLabel->setText(QStringLiteral("⚠️ %1").arg(todo.dueDate));
                 dueLabel->setStyleSheet(QStringLiteral(
                     "color: #ff5252; font-size: 11px; font-weight: bold;"));
+            } else if (dueToday) {
+                dueLabel->setText(QStringLiteral("🔥 今天 %1").arg(todo.dueDate));
+                dueLabel->setStyleSheet(QStringLiteral(
+                    "color: #fab387; font-size: 11px; font-weight: bold;"));
             } else {
+                dueLabel->setText(todo.dueDate);
                 dueLabel->setStyleSheet(QStringLiteral(
                     "color: #ef9a9a; font-size: 11px; font-weight: bold;"));
             }
@@ -377,7 +383,7 @@ void TodoPanel::handleTitleEdit(const QString& id, const QString& newTitle) {
     QSqlQuery q(db);
     q.prepare(QStringLiteral("UPDATE todos SET title = ?, updated_at = ? WHERE id = ?"));
     q.addBindValue(newTitle);
-    q.addBindValue(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    q.addBindValue(QDateTime::currentDateTimeUtc().toUTC().toString(QStringLiteral("yyyy-MM-ddTHH:mm:ss+00:00")));
     q.addBindValue(id);
     if (!q.exec()) {
         qWarning() << "handleTitleEdit failed:" << q.lastError().text();

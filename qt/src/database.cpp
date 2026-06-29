@@ -62,6 +62,7 @@ void Database::migrate() {
         "  source          TEXT,"
         "  context_window  TEXT,"
         "  tags            TEXT NOT NULL DEFAULT '[]',"
+        "  project         TEXT,"
         "  created_at      TEXT NOT NULL"
         ")"
     ));
@@ -72,6 +73,7 @@ void Database::migrate() {
         "  content     TEXT NOT NULL,"
         "  mood        TEXT,"
         "  tags        TEXT NOT NULL DEFAULT '[]',"
+        "  project     TEXT,"
         "  created_at  TEXT NOT NULL,"
         "  updated_at  TEXT"
         ")"
@@ -81,6 +83,43 @@ void Database::migrate() {
     q.exec(QStringLiteral("CREATE INDEX IF NOT EXISTS idx_todos_priority ON todos(priority)"));
     q.exec(QStringLiteral("CREATE INDEX IF NOT EXISTS idx_ideas_created ON ideas(created_at)"));
     q.exec(QStringLiteral("CREATE INDEX IF NOT EXISTS idx_logs_created ON logs(created_at)"));
+
+    // Idempotent column additions for older DBs created without `project`.
+    addColumnIfMissing(QStringLiteral("ideas"), QStringLiteral("project"), QStringLiteral("TEXT"));
+    addColumnIfMissing(QStringLiteral("logs"), QStringLiteral("project"), QStringLiteral("TEXT"));
+}
+
+void Database::addColumnIfMissing(const QString& table, const QString& column, const QString& type) {
+    QSqlDatabase db = QSqlDatabase::database(m_connName);
+    QSqlQuery check(db);
+    check.prepare(QStringLiteral("PRAGMA table_info(%1)").arg(table));
+    if (!check.exec()) {
+        qWarning() << "PRAGMA table_info failed for" << table << ":" << check.lastError().text();
+        return;
+    }
+    bool hasColumn = false;
+    while (check.next()) {
+        if (check.value(1).toString().compare(column, Qt::CaseInsensitive) == 0) {
+            hasColumn = true;
+            break;
+        }
+    }
+    if (!hasColumn) {
+        QSqlQuery alter(db);
+        alter.prepare(QStringLiteral("ALTER TABLE %1 ADD COLUMN %2 %3").arg(table, column, type));
+        if (!alter.exec()) {
+            qWarning() << "ALTER TABLE" << table << "ADD COLUMN" << column << "failed:" << alter.lastError().text();
+        }
+    }
+}
+
+// Timestamp format used when writing to the DB. Matches Rust's
+// `chrono::DateTime::to_rfc3339()` output (`2026-06-29T12:00:00+00:00`) so the
+// CLI/TUI and Qt GUI can round-trip rows created by either side.
+static const QString kRfc3339 = QStringLiteral("yyyy-MM-ddTHH:mm:ss+00:00");
+
+static QString toDbTimestamp(const QDateTime& dt) {
+    return dt.toUTC().toString(kRfc3339);
 }
 
 // ─── Tag JSON helpers ───
@@ -168,8 +207,8 @@ void Database::insertTodo(const Todo& todo) {
     q.addBindValue(todo.dueDate.isEmpty() ? QVariant() : todo.dueDate);
     q.addBindValue(tagsToJson(todo.tags));
     q.addBindValue(todo.project.isEmpty() ? QVariant() : todo.project);
-    q.addBindValue(todo.createdAt.toUTC().toString(Qt::ISODate));
-    q.addBindValue(todo.updatedAt.toUTC().toString(Qt::ISODate));
+    q.addBindValue(toDbTimestamp(todo.createdAt));
+    q.addBindValue(toDbTimestamp(todo.updatedAt));
     if (!q.exec()) {
         qWarning() << "insertTodo failed:" << q.lastError().text();
     }
@@ -178,7 +217,7 @@ void Database::insertTodo(const Todo& todo) {
 void Database::updateTodoStatus(const QString& id, TodoStatus status) {
     QSqlDatabase db = QSqlDatabase::database(m_connName);
     QSqlQuery q(db);
-    auto now = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    auto now = toDbTimestamp(QDateTime::currentDateTimeUtc());
     q.prepare(QStringLiteral("UPDATE todos SET status = ?, updated_at = ? WHERE id = ?"));
     q.addBindValue(statusToString(status));
     q.addBindValue(now);
@@ -205,7 +244,7 @@ QVector<Idea> Database::listIdeas(int days) {
     QSqlQuery q(db);
 
     q.prepare(QStringLiteral(
-        "SELECT * FROM ideas WHERE created_at >= datetime('now', ?) ORDER BY created_at DESC"
+        "SELECT * FROM ideas WHERE datetime(created_at) >= datetime('now', ?) ORDER BY created_at DESC"
     ));
     q.addBindValue(QString(QStringLiteral("-%1 days")).arg(days));
     q.exec();
@@ -219,6 +258,7 @@ QVector<Idea> Database::listIdeas(int days) {
         idea.source        = q.value(QStringLiteral("source")).toString();
         idea.contextWindow = q.value(QStringLiteral("context_window")).toString();
         idea.tags          = tagsFromJson(q.value(QStringLiteral("tags")).toString());
+        idea.project       = q.value(QStringLiteral("project")).toString();
         idea.createdAt     = QDateTime::fromString(q.value(QStringLiteral("created_at")).toString(), Qt::ISODate);
         ideas.append(idea);
     }
@@ -229,8 +269,8 @@ void Database::insertIdea(const Idea& idea) {
     QSqlDatabase db = QSqlDatabase::database(m_connName);
     QSqlQuery q(db);
     q.prepare(QStringLiteral(
-        "INSERT INTO ideas (id, title, content, source, context_window, tags, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO ideas (id, title, content, source, context_window, tags, project, created_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     ));
     q.addBindValue(idea.id);
     q.addBindValue(idea.title);
@@ -238,7 +278,8 @@ void Database::insertIdea(const Idea& idea) {
     q.addBindValue(idea.source.isEmpty() ? QVariant() : idea.source);
     q.addBindValue(idea.contextWindow.isEmpty() ? QVariant() : idea.contextWindow);
     q.addBindValue(tagsToJson(idea.tags));
-    q.addBindValue(idea.createdAt.toUTC().toString(Qt::ISODate));
+    q.addBindValue(idea.project.isEmpty() ? QVariant() : idea.project);
+    q.addBindValue(toDbTimestamp(idea.createdAt));
     if (!q.exec()) {
         qWarning() << "insertIdea failed:" << q.lastError().text();
     }
@@ -261,7 +302,7 @@ QVector<LogEntry> Database::listLogs(int days) {
     QSqlQuery q(db);
 
     q.prepare(QStringLiteral(
-        "SELECT * FROM logs WHERE created_at >= datetime('now', ?) ORDER BY created_at DESC"
+        "SELECT * FROM logs WHERE datetime(created_at) >= datetime('now', ?) ORDER BY created_at DESC"
     ));
     q.addBindValue(QString(QStringLiteral("-%1 days")).arg(days));
     q.exec();
@@ -273,6 +314,7 @@ QVector<LogEntry> Database::listLogs(int days) {
         log.content   = q.value(QStringLiteral("content")).toString();
         log.mood      = q.value(QStringLiteral("mood")).toString();
         log.tags      = tagsFromJson(q.value(QStringLiteral("tags")).toString());
+        log.project   = q.value(QStringLiteral("project")).toString();
         log.createdAt = QDateTime::fromString(q.value(QStringLiteral("created_at")).toString(), Qt::ISODate);
         auto updated  = q.value(QStringLiteral("updated_at")).toString();
         if (!updated.isEmpty()) {
@@ -287,15 +329,16 @@ void Database::insertLog(const LogEntry& log) {
     QSqlDatabase db = QSqlDatabase::database(m_connName);
     QSqlQuery q(db);
     q.prepare(QStringLiteral(
-        "INSERT INTO logs (id, content, mood, tags, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT INTO logs (id, content, mood, tags, project, created_at, updated_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)"
     ));
     q.addBindValue(log.id);
     q.addBindValue(log.content);
     q.addBindValue(log.mood.isEmpty() ? QVariant() : log.mood);
     q.addBindValue(tagsToJson(log.tags));
-    q.addBindValue(log.createdAt.toUTC().toString(Qt::ISODate));
-    q.addBindValue(log.updatedAt.isValid() ? QVariant(log.updatedAt.toUTC().toString(Qt::ISODate)) : QVariant());
+    q.addBindValue(log.project.isEmpty() ? QVariant() : log.project);
+    q.addBindValue(toDbTimestamp(log.createdAt));
+    q.addBindValue(log.updatedAt.isValid() ? QVariant(toDbTimestamp(log.updatedAt)) : QVariant());
     if (!q.exec()) {
         qWarning() << "insertLog failed:" << q.lastError().text();
     }

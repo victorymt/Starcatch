@@ -238,7 +238,7 @@ void LogPanel::handleContentEdit(const QString& id, const QString& newContent) {
     QSqlQuery q(db);
     q.prepare(QStringLiteral("UPDATE logs SET content = ?, updated_at = ? WHERE id = ?"));
     q.addBindValue(newContent);
-    q.addBindValue(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    q.addBindValue(QDateTime::currentDateTimeUtc().toUTC().toString(QStringLiteral("yyyy-MM-ddTHH:mm:ss+00:00")));
     q.addBindValue(id);
     if (!q.exec()) qWarning() << "handleContentEdit(log) failed:" << q.lastError().text();
     refresh();

@@ -83,6 +83,7 @@ struct Idea {
     QString source;
     QString contextWindow;
     QStringList tags;
+    QString project;
     QDateTime createdAt;
 };
 
@@ -91,6 +92,7 @@ struct LogEntry {
     QString content;
     QString mood;
     QStringList tags;
+    QString project;
     QDateTime createdAt;
     QDateTime updatedAt;
 };

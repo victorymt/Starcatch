@@ -149,10 +149,7 @@ void AllPanel::rebuildList(const QString& searchFilter) {
         MixedEntry e;
         e.kind = MixedEntry::Todo;
         e.id = t.id;
-        e.icon = priorityToString(t.priority) == QStringLiteral("P0") ? QStringLiteral("🔴") :
-                 priorityToString(t.priority) == QStringLiteral("P1") ? QStringLiteral("🟡") :
-                 priorityToString(t.priority) == QStringLiteral("P3") ? QStringLiteral("⚪") :
-                 QStringLiteral("📋");
+        e.icon = priorityIcon(t.priority);
         e.text = t.title;
         e.sub = tagsToSub(t.tags);
         e.createdAt = t.createdAt;

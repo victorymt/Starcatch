@@ -236,9 +236,8 @@ fn fetch_todos_by_statuses(
 ) -> Result<Vec<Todo>> {
     let mut todos = Vec::new();
     for s in statuses {
-        if let Ok(mut batch) = db::list_todos(conn, Some(s)) {
-            todos.append(&mut batch);
-        }
+        let mut batch = db::list_todos(conn, Some(s))?;
+        todos.append(&mut batch);
     }
     Ok(todos)
 }

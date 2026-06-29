@@ -1,0 +1,9 @@
+[package]
+name = "sqlite-migrate"
+version = "0.1.0"
+edition = "2021"
+description = "Minimal SQLite schema migration: CREATE TABLE + ALTER TABLE ADD COLUMN, no version table needed."
+license = "MIT"
+
+[dependencies]
+rusqlite = { version = "0.34", default-features = false }

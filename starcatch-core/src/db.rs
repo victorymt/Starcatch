@@ -1,8 +1,37 @@
 use anyhow::Context;
-use chrono::Utc;
+use chrono::{DateTime, FixedOffset, Utc};
 use rusqlite::{Connection, Result};
 
 use crate::models::*;
+
+/// Parse a timestamp stored in the DB robustly.
+///
+/// Rust writes RFC3339 (`2026-06-29T12:00:00+00:00`); older Qt builds wrote
+/// `Qt::ISODate` (`2026-06-29T12:00:00.000Z`). Both should round-trip back to a
+/// valid `DateTime<Utc>` instead of silently becoming the epoch.
+fn parse_ts(s: &str) -> DateTime<Utc> {
+    if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
+        return dt.with_timezone(&Utc);
+    }
+    // Qt ISODate with `Z` and optional milliseconds: 2026-06-29T12:00:00.000Z
+    if let Ok(dt) = DateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.fZ") {
+        return dt.with_timezone(&Utc);
+    }
+    if let Ok(dt) = DateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ") {
+        return dt.with_timezone(&Utc);
+    }
+    // Last resort: try any strptime with explicit offset.
+    if let Ok(dt) = DateTime::parse_from_str(s, "%+") {
+        return dt.with_timezone(&Utc);
+    }
+    Utc::now()
+}
+
+#[allow(dead_code)]
+fn _parse_ts_unused(_: &str) -> Option<DateTime<FixedOffset>> {
+    None
+}
+
 
 /// Fields that can be updated on a todo. All optional — only `Some` fields are applied.
 #[derive(Debug, Clone, Default)]
@@ -170,6 +199,7 @@ pub fn update_todo(conn: &Connection, id: &str, update: &TodoUpdate) -> Result<(
 }
 
 pub fn update_todo_status(conn: &Connection, id: &str, status: &TodoStatus) -> Result<()> {
+    let _ = get_todo(conn, id)?;  // ensure exists; errors if not found
     let now = Utc::now().to_rfc3339();
     conn.execute(
         "UPDATE todos SET status = ?1, updated_at = ?2 WHERE id = ?3",
@@ -179,6 +209,7 @@ pub fn update_todo_status(conn: &Connection, id: &str, status: &TodoStatus) -> R
 }
 
 pub fn delete_todo(conn: &Connection, id: &str) -> Result<()> {
+    let _ = get_todo(conn, id)?;  // ensure exists; errors if not found
     conn.execute("DELETE FROM todos WHERE id = ?1", rusqlite::params![id])?;
     Ok(())
 }
@@ -211,8 +242,8 @@ fn todo_from_row(row: &rusqlite::Row) -> rusqlite::Result<Todo> {
         due_date: row.get("due_date")?,
         tags,
         project: row.get("project")?,
-        created_at: row.get::<_, String>("created_at")?.parse().unwrap_or_default(),
-        updated_at: row.get::<_, String>("updated_at")?.parse().unwrap_or_default(),
+        created_at: parse_ts(&row.get::<_, String>("created_at")?),
+        updated_at: parse_ts(&row.get::<_, String>("updated_at")?),
     })
 }
 
@@ -243,7 +274,7 @@ pub fn get_idea(conn: &Connection, id: &str) -> Result<Idea> {
 
 pub fn list_ideas(conn: &Connection, days: Option<i64>) -> Result<Vec<Idea>> {
     let sql = match days {
-        Some(_) => "SELECT * FROM ideas WHERE created_at >= datetime('now', ?1) ORDER BY created_at DESC",
+        Some(_) => "SELECT * FROM ideas WHERE datetime(created_at) >= datetime('now', ?1) ORDER BY created_at DESC",
         None => "SELECT * FROM ideas ORDER BY created_at DESC",
     };
 
@@ -278,6 +309,7 @@ pub fn update_idea(conn: &Connection, id: &str, update: &IdeaUpdate) -> Result<(
 }
 
 pub fn delete_idea(conn: &Connection, id: &str) -> Result<()> {
+    let _ = get_idea(conn, id)?;  // ensure exists; errors if not found
     conn.execute("DELETE FROM ideas WHERE id = ?1", rusqlite::params![id])?;
     Ok(())
 }
@@ -294,7 +326,7 @@ fn idea_from_row(row: &rusqlite::Row) -> rusqlite::Result<Idea> {
         context_window: row.get("context_window")?,
         tags,
         project: row.get("project")?,
-        created_at: row.get::<_, String>("created_at")?.parse().unwrap_or_default(),
+        created_at: parse_ts(&row.get::<_, String>("created_at")?),
     })
 }
 
@@ -324,7 +356,7 @@ pub fn get_log(conn: &Connection, id: &str) -> Result<Log> {
 
 pub fn list_logs(conn: &Connection, days: Option<i64>) -> Result<Vec<Log>> {
     let sql = match days {
-        Some(_) => "SELECT * FROM logs WHERE created_at >= datetime('now', ?1) ORDER BY created_at DESC",
+        Some(_) => "SELECT * FROM logs WHERE datetime(created_at) >= datetime('now', ?1) ORDER BY created_at DESC",
         None => "SELECT * FROM logs ORDER BY created_at DESC",
     };
 
@@ -367,6 +399,7 @@ pub fn update_log(conn: &Connection, id: &str, update: &LogUpdate) -> Result<()>
 }
 
 pub fn delete_log(conn: &Connection, id: &str) -> Result<()> {
+    let _ = get_log(conn, id)?;  // ensure exists; errors if not found
     conn.execute("DELETE FROM logs WHERE id = ?1", rusqlite::params![id])?;
     Ok(())
 }
@@ -383,8 +416,8 @@ fn log_from_row(row: &rusqlite::Row) -> rusqlite::Result<Log> {
         mood: row.get("mood")?,
         tags,
         project: row.get("project")?,
-        created_at: row.get::<_, String>("created_at")?.parse().unwrap_or_default(),
-        updated_at: updated.map(|s| s.parse().unwrap_or_default()),
+        created_at: parse_ts(&row.get::<_, String>("created_at")?),
+        updated_at: updated.map(|s| parse_ts(&s)),
     })
 }
 
@@ -500,13 +533,13 @@ pub fn get_stats(conn: &Connection) -> Result<Stats> {
     )?;
 
     let ideas_7d: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM ideas WHERE created_at >= datetime('now', '-7 days')",
+        "SELECT COUNT(*) FROM ideas WHERE datetime(created_at) >= datetime('now', '-7 days')",
         [],
         |row| row.get(0),
     )?;
 
     let logs_7d: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM logs WHERE created_at >= datetime('now', '-7 days')",
+        "SELECT COUNT(*) FROM logs WHERE datetime(created_at) >= datetime('now', '-7 days')",
         [],
         |row| row.get(0),
     )?;

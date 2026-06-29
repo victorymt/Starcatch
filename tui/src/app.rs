@@ -52,7 +52,9 @@ pub struct App {
     // Status
     pub status_message: Option<String>,
     pub needs_refresh: bool,
-    pub status_auto_clear: bool,  // clear status on next Tick
+    /// 倒计时 tick 数直到状态消息清除；0 = 不自动清除。
+    /// POLL_TIMEOUT=250ms，10 tick ≈ 2.5s，与 Qt toast 时长一致。
+    pub status_clear_in: u32,
 
 }
 
@@ -76,7 +78,7 @@ impl App {
             confirm_delete: false,
             status_message: None,
             needs_refresh: true,
-            status_auto_clear: false,
+            status_clear_in: 0,
         };
         app.refresh_data();
         Ok(app)
@@ -426,15 +428,18 @@ impl App {
 
     pub fn set_status(&mut self, msg: &str) {
         self.status_message = Some(msg.to_string());
-        self.status_auto_clear = true;
+        // 2.5s 后清除（POLL_TIMEOUT=250ms × 10）
+        self.status_clear_in = 10;
     }
 
-    /// Called on Tick events. Clears the status after one tick delay,
-    /// giving the user ~250ms to read it.
+    /// Called on Tick events. Counts down and clears the status after the
+    /// configured duration, giving the user time to read it.
     pub fn tick_clear_status(&mut self) {
-        if self.status_auto_clear {
-            self.status_auto_clear = false;
-            self.status_message = None;
+        if self.status_clear_in > 0 {
+            self.status_clear_in -= 1;
+            if self.status_clear_in == 0 {
+                self.status_message = None;
+            }
         }
     }
 }

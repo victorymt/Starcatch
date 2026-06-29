@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "glob": "src/**/*.rs",
+        "command": "cargo check 2>&1 | tail -20"
+      },
+      {
+        "glob": "src/**/*.rs",
+        "command": "cargo test 2>&1 | tail -15"
+      }
+    ]
+  },
+  "permissions": {
+    "allow": ["Edit", "Write", "Bash(cargo check:*)", "Bash(cargo test:*)"]
+  }
+}

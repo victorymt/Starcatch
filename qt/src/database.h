@@ -32,6 +32,7 @@ public:
 private:
     QStringList tagsFromJson(const QString& json);
     QString tagsToJson(const QStringList& tags);
+    void addColumnIfMissing(const QString& table, const QString& column, const QString& type);
 
     QString m_dbPath;
     QString m_connName;

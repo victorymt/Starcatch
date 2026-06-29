@@ -72,6 +72,19 @@ ParsedInput parseTodoInput(const QString& raw) {
                 result.tags.append(tag);
             }
         }
+        // project: / project： prefix — value may be in same token or the next
+        else if (token.startsWith(QStringLiteral("project:"))
+              || token.startsWith(QStringLiteral("project："))
+        ) {
+            int prefixLen = token.startsWith(QStringLiteral("project：")) ? 8 : 8;
+            QString val = token.mid(prefixLen).trimmed();
+            if (val.isEmpty() && i + 1 < tokens.size()) {
+                val = tokens[++i];
+            }
+            if (!val.isEmpty()) {
+                result.project = trimTrailingPunct(val);
+            }
+        }
         // Plain title word
         else {
             titleParts.append(token);
